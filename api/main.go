@@ -26,9 +26,9 @@ type AgentHealth struct {
 }
 
 type AuditEvent struct {
-	Time   time.Time `json:"time"`
-	Action string    `json:"action"`
-	Result bool      `json:"result"`
+	Time   string `json:"time"`
+	Action string `json:"action"`
+	Result bool   `json:"result"`
 }
 
 type auditLog struct {
@@ -36,14 +36,14 @@ type auditLog struct {
 	events []AuditEvent
 }
 
-func (a *auditLog) add(action string, result bool) {
+func (a *auditLog) recordAudit(action string, ok bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
 	a.events = append(a.events, AuditEvent{
-		Time:   time.Now().UTC(),
+		Time:   time.Now().UTC().Format(time.RFC3339Nano),
 		Action: action,
-		Result: result,
+		Result: ok,
 	})
 
 	if len(a.events) > 50 {
@@ -113,6 +113,10 @@ func main() {
 
 	mux.HandleFunc("/ports", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		ok := false
+		defer func() {
+			audit.recordAudit("ports.read", ok)
+		}()
 
 		agentBase := getenv("AGENT_BASE", "http://127.0.0.1:9091")
 		agentURL := agentBase + "/ports"
@@ -121,7 +125,6 @@ func main() {
 		resp, err := client.Get(agentURL)
 		if err != nil {
 			_ = json.NewEncoder(w).Encode(shared.OperationResult{OK: false, Error: err.Error()})
-			audit.add("ports.read", false)
 			return
 		}
 		defer resp.Body.Close()
@@ -131,17 +134,15 @@ func main() {
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			_ = json.NewEncoder(w).Encode(shared.OperationResult{OK: false, Error: "failed to read agent response: " + err.Error()})
-			audit.add("ports.read", false)
 			return
 		}
 
 		if len(body) == 0 {
 			_ = json.NewEncoder(w).Encode(shared.OperationResult{OK: false, Error: "empty response from agent"})
-			audit.add("ports.read", false)
 			return
 		}
 
-		audit.add("ports.read", resp.StatusCode >= 200 && resp.StatusCode < 300)
+		ok = resp.StatusCode >= 200 && resp.StatusCode < 300
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(body)
 	})
