@@ -13,13 +13,21 @@
       .down { border-color: #c53030; }
       code { background: #f6f6f6; padding: 2px 6px; border-radius: 6px; }
       button { padding: 10px 14px; border-radius: 10px; border: 1px solid #ccc; background: #fff; cursor:pointer; }
+      .nav { display: flex; gap: 12px; margin: 12px 0 20px; }
+      .nav a { text-decoration: none; padding: 8px 12px; border-radius: 10px; border: 1px solid #ddd; color: inherit; }
+      .nav a.active { background: #f6f6f6; border-color: #aaa; }
     </style>
   </head>
   <body>
     <h1>StackWarden</h1>
     <p>Minimal dashboard host (HTML) + Go API + Go Agent.</p>
 
-    <div class="card">
+    <div class="nav">
+      <a id="navHome" href="#/">Home</a>
+      <a id="navPorts" href="#/ports">Ports</a>
+    </div>
+
+    <div id="statusSection" class="card">
       <div class="row">
         <strong>API</strong>
         <span id="apiBadge" class="badge">checking...</span>
@@ -35,15 +43,37 @@
       </div>
     </div>
 
+    <div id="portsSection" class="card" style="display:none;">
+      <h3>Listening Ports</h3>
+      <pre id="portsOutput">Loading...</pre>
+      <h4>Audit</h4>
+      <pre id="auditOutput">Loading...</pre>
+    </div>
+
     <div class="card">
       <h3>Endpoints</h3>
       <ul>
         <li><code>GET /health</code></li>
         <li><code>GET /agent/health</code></li>
+        <li><code>GET /ports</code></li>
       </ul>
     </div>
 
     <script>
+      function setRoute(route) {
+        const isPorts = route === "#/ports";
+        document.getElementById("statusSection").style.display = isPorts ? "none" : "block";
+        document.getElementById("portsSection").style.display = isPorts ? "block" : "none";
+
+        document.getElementById("navHome").classList.toggle("active", !isPorts);
+        document.getElementById("navPorts").classList.toggle("active", isPorts);
+      }
+
+      function handleRouteChange() {
+        const route = window.location.hash || "#/";
+        setRoute(route);
+      }
+
       function setBadge(el, ok, text) {
         el.textContent = text;
         el.className = "badge " + (ok ? "ok" : "down");
@@ -76,8 +106,33 @@
           setBadge(document.getElementById("agentBadge"), false, "DOWN");
           document.getElementById("agentText").textContent = String(e);
         }
+
+        // Ports
+        try {
+          const r = await fetch("/ports");
+          const j = await r.json();
+          if (j.ok) {
+            document.getElementById("portsOutput").textContent = j.output || "(no data)";
+          } else {
+            document.getElementById("portsOutput").textContent = j.error || "failed to load ports";
+          }
+        } catch (e) {
+          document.getElementById("portsOutput").textContent = String(e);
+        }
+
+        // Audit
+        try {
+          const r = await fetch("/audit");
+          const j = await r.json();
+          document.getElementById("auditOutput").textContent = JSON.stringify(j, null, 2);
+        } catch (e) {
+          document.getElementById("auditOutput").textContent = String(e);
+        }
       }
 
+      window.addEventListener("hashchange", handleRouteChange);
+
+      handleRouteChange();
       refresh();
       setInterval(refresh, 5000);
     </script>

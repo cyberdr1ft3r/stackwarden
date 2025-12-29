@@ -2,11 +2,15 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
+
+	shared "github.com/m0b3u/stackwarden/pkg"
 )
 
 type Health struct {
@@ -21,8 +25,44 @@ type AgentHealth struct {
 	Error   string `json:"error,omitempty"`
 }
 
+type AuditEvent struct {
+	Time   time.Time `json:"time"`
+	Action string    `json:"action"`
+	Result bool      `json:"result"`
+}
+
+type auditLog struct {
+	mu     sync.Mutex
+	events []AuditEvent
+}
+
+func (a *auditLog) add(action string, result bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	a.events = append(a.events, AuditEvent{
+		Time:   time.Now().UTC(),
+		Action: action,
+		Result: result,
+	})
+
+	if len(a.events) > 50 {
+		a.events = a.events[len(a.events)-50:]
+	}
+}
+
+func (a *auditLog) list() []AuditEvent {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	out := make([]AuditEvent, len(a.events))
+	copy(out, a.events)
+	return out
+}
+
 func main() {
 	mux := http.NewServeMux()
+	audit := &auditLog{}
 
 	// API health
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -69,6 +109,47 @@ func main() {
 			Status:  h.Status,
 			Service: h.Service,
 		})
+	})
+
+	mux.HandleFunc("/ports", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		agentBase := getenv("AGENT_BASE", "http://127.0.0.1:9091")
+		agentURL := agentBase + "/ports"
+
+		client := &http.Client{Timeout: 3 * time.Second}
+		resp, err := client.Get(agentURL)
+		if err != nil {
+			_ = json.NewEncoder(w).Encode(shared.OperationResult{OK: false, Error: err.Error()})
+			audit.add("ports.read", false)
+			return
+		}
+		defer resp.Body.Close()
+
+		w.WriteHeader(resp.StatusCode)
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			_ = json.NewEncoder(w).Encode(shared.OperationResult{OK: false, Error: "failed to read agent response: " + err.Error()})
+			audit.add("ports.read", false)
+			return
+		}
+
+		if len(body) == 0 {
+			_ = json.NewEncoder(w).Encode(shared.OperationResult{OK: false, Error: "empty response from agent"})
+			audit.add("ports.read", false)
+			return
+		}
+
+		audit.add("ports.read", resp.StatusCode >= 200 && resp.StatusCode < 300)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	})
+
+	mux.HandleFunc("/audit", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		events := audit.list()
+		_ = json.NewEncoder(w).Encode(events)
 	})
 
 	// Serve UI (static)
