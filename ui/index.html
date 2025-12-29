@@ -22,6 +22,8 @@
       input[type="search"] { padding: 8px 10px; border-radius: 8px; border: 1px solid #ccc; width: 240px; }
       .muted { color: #666; font-size: 14px; }
       .error { color: #c53030; margin-top: 8px; }
+      .summary { display: flex; gap: 12px; flex-wrap: wrap; font-size: 14px; margin: 6px 0 10px; }
+      .result-icon { font-size: 16px; }
     </style>
   </head>
   <body>
@@ -53,10 +55,13 @@
       <h3>Listening Ports</h3>
       <div class="row" style="justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 10px;">
         <div style="display:flex; gap: 8px; align-items: center;">
-          <button id="portsRefresh">Refresh</button>
+          <button id="portsRefresh">Refresh Ports</button>
           <input id="portsFilter" type="search" placeholder="Search proto, address, port, pid..." />
         </div>
-        <span id="portsCount" class="muted"></span>
+        <div style="display:flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+          <span id="portsUpdated" class="muted"></span>
+          <span id="portsCount" class="muted"></span>
+        </div>
       </div>
       <div id="portsError" class="error" style="display:none;"></div>
       <table>
@@ -71,14 +76,31 @@
           </tr>
         </thead>
         <tbody id="portsTableBody">
-          <tr><td colspan="6" class="muted">Loading...</td></tr>
+          <tr><td colspan="6" class="muted">Click Refresh Ports to load data</td></tr>
         </tbody>
       </table>
       <h4>Audit</h4>
-      <div style="margin-bottom: 8px;">
-        <button id="auditRefresh">Refresh Audit</button>
+      <div class="row" style="justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 10px;">
+        <div style="display:flex; gap: 8px; align-items: center;">
+          <button id="auditRefresh">Refresh Audit</button>
+          <input id="auditFilter" type="search" placeholder="Filter by action..." />
+        </div>
+        <span id="auditMeta" class="muted"></span>
       </div>
-      <pre id="auditOutput">Loading...</pre>
+      <div id="auditError" class="error" style="display:none;"></div>
+      <div id="auditSummary" class="summary muted">Click Refresh Audit to load data</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Action</th>
+            <th>Result</th>
+          </tr>
+        </thead>
+        <tbody id="auditTableBody">
+          <tr><td colspan="3" class="muted">Waiting for audit data</td></tr>
+        </tbody>
+      </table>
     </div>
 
     <div class="card">
@@ -104,10 +126,7 @@
       function handleRouteChange() {
         const route = window.location.hash || "#/";
         setRoute(route);
-        if (route === "#/ports") {
-          refreshPorts();
-          refreshAudit();
-        } else {
+        if (route === "#/") {
           refreshStatus();
         }
       }
@@ -146,7 +165,22 @@
         return { ok: false, error: "unexpected response format" };
       }
 
-      const state = { ports: [], filter: "" };
+      const state = { ports: [], portsFilter: "", auditEvents: [], auditFilter: "" };
+
+      function setButtonLoading(button, isLoading, label) {
+        if (!button) return;
+        button.disabled = isLoading;
+        button.textContent = isLoading ? "Loading..." : label;
+      }
+
+      function formatLocalTime(value) {
+        if (!value) return "n/a";
+        const d = new Date(value);
+        if (Number.isNaN(d.getTime())) {
+          return value;
+        }
+        return d.toLocaleString();
+      }
 
       async function refreshStatus() {
         try {
@@ -177,7 +211,7 @@
 
       function renderPortsTable() {
         const tbody = document.getElementById("portsTableBody");
-        const filterText = state.filter.trim().toLowerCase();
+        const filterText = state.portsFilter.trim().toLowerCase();
         const rows = filterText
           ? state.ports.filter((p) => {
               const values = [
@@ -203,7 +237,8 @@
         countEl.textContent = rows.length ? `${rows.length} port${rows.length === 1 ? "" : "s"}` : "No ports";
 
         if (!rows.length) {
-          tbody.innerHTML = '<tr><td colspan="6" class="muted">No matching ports</td></tr>';
+          const message = state.ports.length ? "No matching ports" : "Click Refresh Ports to load data";
+          tbody.innerHTML = `<tr><td colspan="6" class="muted">${message}</td></tr>`;
           return;
         }
 
@@ -240,39 +275,144 @@
 
       async function refreshPorts() {
         setPortsError("");
-        document.getElementById("portsTableBody").innerHTML = '<tr><td colspan="6" class="muted">Loading...</td></tr>';
+        const tbody = document.getElementById("portsTableBody");
+        const lastUpdated = document.getElementById("portsUpdated");
+        setButtonLoading(document.getElementById("portsRefresh"), true, "Refresh Ports");
+        tbody.innerHTML = '<tr><td colspan="6" class="muted">Loading...</td></tr>';
         document.getElementById("portsCount").textContent = "";
+        lastUpdated.textContent = "";
 
         try {
-          const r = await fetch("/ports");
-          const j = await r.json();
-          const normalized = normalizePortsResponse(j);
-          if (!normalized.ok) {
-            setPortsError(normalized.error || "failed to load ports");
-            document.getElementById("portsTableBody").innerHTML = '<tr><td colspan="6" class="muted">No data</td></tr>';
+          const response = await fetch("/ports");
+          const data = await response.json();
+          const normalized = normalizePortsResponse(data);
+          if (!response.ok || !normalized.ok) {
+            const errorMessage = normalized.error || `Request failed (${response.status})`;
+            setPortsError(errorMessage);
+            renderPortsTable();
             return;
           }
+
           state.ports = normalized.ports || [];
           renderPortsTable();
+          lastUpdated.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
         } catch (e) {
           setPortsError(String(e));
-          document.getElementById("portsTableBody").innerHTML = '<tr><td colspan="6" class="muted">No data</td></tr>';
+          renderPortsTable();
+        } finally {
+          setButtonLoading(document.getElementById("portsRefresh"), false, "Refresh Ports");
         }
       }
 
+      function normalizeAuditResponse(data) {
+        if (data && typeof data === "object" && "ok" in data) {
+          if (!data.ok) {
+            return { ok: false, error: data.error || data.message || "failed to load audit" };
+          }
+          const payloads = [data.data, data.audit, data.events];
+          for (const candidate of payloads) {
+            if (Array.isArray(candidate)) return { ok: true, events: candidate };
+          }
+          return { ok: true, events: [] };
+        }
+
+        if (Array.isArray(data)) {
+          return { ok: true, events: data };
+        }
+
+        return { ok: false, error: "unexpected response format" };
+      }
+
+      function setAuditError(message) {
+        const errorEl = document.getElementById("auditError");
+        if (message) {
+          errorEl.textContent = message;
+          errorEl.style.display = "block";
+        } else {
+          errorEl.textContent = "";
+          errorEl.style.display = "none";
+        }
+      }
+
+      function renderAudit() {
+        const tbody = document.getElementById("auditTableBody");
+        const summary = document.getElementById("auditSummary");
+        const meta = document.getElementById("auditMeta");
+        const filterText = state.auditFilter.trim().toLowerCase();
+
+        const filtered = filterText
+          ? state.auditEvents.filter((e) => (e.action ? e.action.toLowerCase().includes(filterText) : false))
+          : state.auditEvents.slice();
+
+        const capped = filtered.slice(-50);
+        const ordered = capped.slice().sort((a, b) => {
+          const at = new Date(a.time).getTime();
+          const bt = new Date(b.time).getTime();
+          return bt - at;
+        });
+
+        if (!ordered.length) {
+          tbody.innerHTML = '<tr><td colspan="3" class="muted">No audit events. Click Refresh Audit.</td></tr>';
+          summary.textContent = "No audit data";
+          meta.textContent = "";
+          return;
+        }
+
+        const successCount = ordered.filter((e) => e.result).length;
+        const failureCount = ordered.length - successCount;
+        const latest = ordered[0];
+
+        summary.textContent = `Events shown: ${ordered.length} (max 50) · Success: ${successCount} · Failure: ${failureCount} · Latest: ${formatLocalTime(latest.time)}`;
+        meta.textContent = filterText ? `Filtered by: "${state.auditFilter}"` : "";
+
+        tbody.innerHTML = ordered
+          .map((e) => {
+            const icon = e.result ? "✅" : "❌";
+            return `<tr>
+              <td>${formatLocalTime(e.time)}</td>
+              <td>${e.action || ""}</td>
+              <td class="result-icon">${icon}</td>
+            </tr>`;
+          })
+          .join("");
+      }
+
       async function refreshAudit() {
+        setAuditError("");
+        setButtonLoading(document.getElementById("auditRefresh"), true, "Refresh Audit");
+        document.getElementById("auditTableBody").innerHTML = '<tr><td colspan="3" class="muted">Loading...</td></tr>';
+        document.getElementById("auditSummary").textContent = "Loading...";
+        document.getElementById("auditMeta").textContent = "";
+
         try {
-          const r = await fetch("/audit");
-          const j = await r.json();
-          document.getElementById("auditOutput").textContent = JSON.stringify(j, null, 2);
+          const response = await fetch("/audit");
+          const data = await response.json();
+          const normalized = normalizeAuditResponse(data);
+          if (!response.ok || !normalized.ok) {
+            const errorMessage = normalized.error || `Request failed (${response.status})`;
+            setAuditError(errorMessage);
+            renderAudit();
+            return;
+          }
+
+          state.auditEvents = normalized.events || [];
+          renderAudit();
         } catch (e) {
-          document.getElementById("auditOutput").textContent = String(e);
+          setAuditError(String(e));
+          renderAudit();
+        } finally {
+          setButtonLoading(document.getElementById("auditRefresh"), false, "Refresh Audit");
         }
       }
 
       document.getElementById("portsFilter").addEventListener("input", (e) => {
-        state.filter = e.target.value || "";
+        state.portsFilter = e.target.value || "";
         renderPortsTable();
+      });
+
+      document.getElementById("auditFilter").addEventListener("input", (e) => {
+        state.auditFilter = e.target.value || "";
+        renderAudit();
       });
 
       document.getElementById("portsRefresh").addEventListener("click", refreshPorts);
@@ -282,7 +422,6 @@
       window.addEventListener("hashchange", handleRouteChange);
 
       handleRouteChange();
-      setInterval(refreshStatus, 5000);
     </script>
   </body>
 </html>
