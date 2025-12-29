@@ -16,6 +16,12 @@
       .nav { display: flex; gap: 12px; margin: 12px 0 20px; }
       .nav a { text-decoration: none; padding: 8px 12px; border-radius: 10px; border: 1px solid #ddd; color: inherit; }
       .nav a.active { background: #f6f6f6; border-color: #aaa; }
+      table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+      th, td { border: 1px solid #e2e2e2; padding: 8px; text-align: left; font-size: 14px; }
+      th { background: #f9f9f9; }
+      input[type="search"] { padding: 8px 10px; border-radius: 8px; border: 1px solid #ccc; width: 240px; }
+      .muted { color: #666; font-size: 14px; }
+      .error { color: #c53030; margin-top: 8px; }
     </style>
   </head>
   <body>
@@ -39,14 +45,39 @@
         <span id="agentText"></span>
       </div>
       <div style="margin-top:14px;">
-        <button onclick="refresh()">Refresh</button>
+        <button id="statusRefresh">Refresh</button>
       </div>
     </div>
 
     <div id="portsSection" class="card" style="display:none;">
       <h3>Listening Ports</h3>
-      <pre id="portsOutput">Loading...</pre>
+      <div class="row" style="justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 10px;">
+        <div style="display:flex; gap: 8px; align-items: center;">
+          <button id="portsRefresh">Refresh</button>
+          <input id="portsFilter" type="search" placeholder="Search proto, address, port, pid..." />
+        </div>
+        <span id="portsCount" class="muted"></span>
+      </div>
+      <div id="portsError" class="error" style="display:none;"></div>
+      <table>
+        <thead>
+          <tr>
+            <th>Proto</th>
+            <th>Local Address</th>
+            <th>Port</th>
+            <th>PID</th>
+            <th>State</th>
+            <th>Process</th>
+          </tr>
+        </thead>
+        <tbody id="portsTableBody">
+          <tr><td colspan="6" class="muted">Loading...</td></tr>
+        </tbody>
+      </table>
       <h4>Audit</h4>
+      <div style="margin-bottom: 8px;">
+        <button id="auditRefresh">Refresh Audit</button>
+      </div>
       <pre id="auditOutput">Loading...</pre>
     </div>
 
@@ -73,6 +104,12 @@
       function handleRouteChange() {
         const route = window.location.hash || "#/";
         setRoute(route);
+        if (route === "#/ports") {
+          refreshPorts();
+          refreshAudit();
+        } else {
+          refreshStatus();
+        }
       }
 
       function setBadge(el, ok, text) {
@@ -80,8 +117,38 @@
         el.className = "badge " + (ok ? "ok" : "down");
       }
 
-      async function refresh() {
-        // API
+      function normalizePortsResponse(data) {
+        if (data && typeof data === "object" && "ok" in data) {
+          if (!data.ok) {
+            return { ok: false, error: data.error || data.message || "failed to load ports" };
+          }
+
+          const payloads = [data.data, data.ports, data.output, data];
+          for (const candidate of payloads) {
+            if (Array.isArray(candidate)) {
+              return { ok: true, ports: candidate };
+            }
+            if (typeof candidate === "string") {
+              return { ok: false, error: candidate };
+            }
+            if (candidate && typeof candidate === "object" && Array.isArray(candidate.ports)) {
+              return { ok: true, ports: candidate.ports };
+            }
+          }
+
+          return { ok: true, ports: [] };
+        }
+
+        if (Array.isArray(data)) {
+          return { ok: true, ports: data };
+        }
+
+        return { ok: false, error: "unexpected response format" };
+      }
+
+      const state = { ports: [], filter: "" };
+
+      async function refreshStatus() {
         try {
           const r = await fetch("/health");
           const j = await r.json();
@@ -92,7 +159,6 @@
           document.getElementById("apiText").textContent = String(e);
         }
 
-        // Agent
         try {
           const r = await fetch("/agent/health");
           const j = await r.json();
@@ -107,27 +173,94 @@
           setBadge(document.getElementById("agentBadge"), false, "DOWN");
           document.getElementById("agentText").textContent = String(e);
         }
+      }
 
-        // Ports
+      function renderPortsTable() {
+        const tbody = document.getElementById("portsTableBody");
+        const filterText = state.filter.trim().toLowerCase();
+        const rows = filterText
+          ? state.ports.filter((p) => {
+              const values = [
+                p.protocol,
+                p.local_address,
+                p.localAddress,
+                p.local_port,
+                p.localPort,
+                p.pid,
+                p.state,
+                p.process,
+                p.LocalPort,
+                p.PID,
+                p.State,
+                p.Process,
+                p.LocalAddress,
+              ];
+              return values.some((v) => (v !== undefined && v !== null ? String(v).toLowerCase().includes(filterText) : false));
+            })
+          : state.ports.slice();
+
+        const countEl = document.getElementById("portsCount");
+        countEl.textContent = rows.length ? `${rows.length} port${rows.length === 1 ? "" : "s"}` : "No ports";
+
+        if (!rows.length) {
+          tbody.innerHTML = '<tr><td colspan="6" class="muted">No matching ports</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = rows
+          .map((p) => {
+            const proto = p.protocol || p.Protocol || "";
+            const addr = p.local_address || p.LocalAddress || p.localAddress || "";
+            const port = p.local_port ?? p.LocalPort ?? p.localPort ?? "";
+            const pid = p.pid ?? p.PID ?? "";
+            const state = p.state || p.State || "";
+            const proc = p.process || p.Process || "";
+            return `<tr>
+              <td>${proto || "-"}</td>
+              <td>${addr || "-"}</td>
+              <td>${port || "-"}</td>
+              <td>${pid || "-"}</td>
+              <td>${state || ""}</td>
+              <td>${proc || ""}</td>
+            </tr>`;
+          })
+          .join("");
+      }
+
+      function setPortsError(message) {
+        const errorEl = document.getElementById("portsError");
+        if (message) {
+          errorEl.textContent = message;
+          errorEl.style.display = "block";
+        } else {
+          errorEl.textContent = "";
+          errorEl.style.display = "none";
+        }
+      }
+
+      async function refreshPorts() {
+        setPortsError("");
+        document.getElementById("portsTableBody").innerHTML = '<tr><td colspan="6" class="muted">Loading...</td></tr>';
+        document.getElementById("portsCount").textContent = "";
+
         try {
           const r = await fetch("/ports");
           const j = await r.json();
-          if (j.ok) {
-            if (Array.isArray(j.ports) && j.ports.length > 0) {
-              document.getElementById("portsOutput").textContent = JSON.stringify(j.ports, null, 2);
-            } else if (j.output) {
-              document.getElementById("portsOutput").textContent = j.output;
-            } else {
-              document.getElementById("portsOutput").textContent = "(no data)";
-            }
-          } else {
-            document.getElementById("portsOutput").textContent = j.error || "failed to load ports";
+          const normalized = normalizePortsResponse(j);
+          if (!normalized.ok) {
+            setPortsError(normalized.error || "failed to load ports");
+            document.getElementById("portsTableBody").innerHTML = '<tr><td colspan="6" class="muted">No data</td></tr>';
+            return;
           }
+          state.ports = normalized.ports || [];
+          renderPortsTable();
         } catch (e) {
-          document.getElementById("portsOutput").textContent = String(e);
+          setPortsError(String(e));
+          document.getElementById("portsTableBody").innerHTML = '<tr><td colspan="6" class="muted">No data</td></tr>';
         }
+      }
 
-        // Audit
+      async function refreshAudit() {
         try {
           const r = await fetch("/audit");
           const j = await r.json();
@@ -137,11 +270,19 @@
         }
       }
 
+      document.getElementById("portsFilter").addEventListener("input", (e) => {
+        state.filter = e.target.value || "";
+        renderPortsTable();
+      });
+
+      document.getElementById("portsRefresh").addEventListener("click", refreshPorts);
+      document.getElementById("auditRefresh").addEventListener("click", refreshAudit);
+      document.getElementById("statusRefresh").addEventListener("click", refreshStatus);
+
       window.addEventListener("hashchange", handleRouteChange);
 
       handleRouteChange();
-      refresh();
-      setInterval(refresh, 5000);
+      setInterval(refreshStatus, 5000);
     </script>
   </body>
 </html>
