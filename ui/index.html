@@ -33,6 +33,7 @@
     <div class="nav">
       <a id="navHome" href="#/">Home</a>
       <a id="navPorts" href="#/ports">Ports</a>
+      <a id="navTools" href="#/tools">Tools</a>
     </div>
 
     <div id="statusSection" class="card">
@@ -103,6 +104,16 @@
       </table>
     </div>
 
+    <div id="toolsSection" class="card" style="display:none;">
+      <div style="display:flex; justify-content: space-between; align-items:center; flex-wrap: wrap; gap: 10px;">
+        <h3 style="margin:0;">Tools</h3>
+        <button id="toolsRefresh">Refresh Tools</button>
+      </div>
+      <p class="muted" style="margin-top:6px;">Download ready-to-use bundles.</p>
+      <div id="toolsError" class="error" style="display:none;"></div>
+      <div id="toolsList"></div>
+    </div>
+
     <div class="card">
       <h3>Endpoints</h3>
       <ul>
@@ -110,17 +121,24 @@
         <li><code>GET /agent/health</code></li>
         <li><code>GET /ports</code></li>
         <li><code>GET /audit</code></li>
+        <li><code>GET /tools</code></li>
+        <li><code>GET /tools/&lt;id&gt;/bundle</code></li>
       </ul>
     </div>
 
     <script>
       function setRoute(route) {
+        const isHome = route === "#/" || route === "#";
         const isPorts = route === "#/ports";
-        document.getElementById("statusSection").style.display = isPorts ? "none" : "block";
-        document.getElementById("portsSection").style.display = isPorts ? "block" : "none";
+        const isTools = route === "#/tools";
 
-        document.getElementById("navHome").classList.toggle("active", !isPorts);
+        document.getElementById("statusSection").style.display = isHome ? "block" : "none";
+        document.getElementById("portsSection").style.display = isPorts ? "block" : "none";
+        document.getElementById("toolsSection").style.display = isTools ? "block" : "none";
+
+        document.getElementById("navHome").classList.toggle("active", isHome);
         document.getElementById("navPorts").classList.toggle("active", isPorts);
+        document.getElementById("navTools").classList.toggle("active", isTools);
       }
 
       function handleRouteChange() {
@@ -128,12 +146,53 @@
         setRoute(route);
         if (route === "#/") {
           refreshStatus();
+        } else if (route === "#/tools") {
+          if (!state.toolsLoaded) {
+            refreshTools();
+          }
         }
       }
 
       function setBadge(el, ok, text) {
         el.textContent = text;
         el.className = "badge " + (ok ? "ok" : "down");
+      }
+
+      function setToolsError(message) {
+        const errorEl = document.getElementById("toolsError");
+        if (message) {
+          errorEl.textContent = message;
+          errorEl.style.display = "block";
+        } else {
+          errorEl.textContent = "";
+          errorEl.style.display = "none";
+        }
+      }
+
+      function renderTools() {
+        const container = document.getElementById("toolsList");
+        if (!state.tools.length) {
+          container.innerHTML = '<div class="muted">No tools available. Click Refresh Tools.</div>';
+          return;
+        }
+
+        container.innerHTML = state.tools
+          .map((tool) => {
+            const tags = (tool.tags || []).map((t) => `<span class="badge">${t}</span>`).join(" ");
+            return `<div class="card" style="margin:12px 0;">
+              <div style="display:flex; justify-content: space-between; align-items:flex-start; gap: 12px; flex-wrap: wrap;">
+                <div>
+                  <h4 style="margin:0 0 6px 0;">${tool.name || tool.id}</h4>
+                  <p style="margin: 0 0 6px 0;">${tool.description || ""}</p>
+                  <div style="display:flex; gap:6px; flex-wrap: wrap;">${tags}</div>
+                </div>
+                <div>
+                  <a href="/tools/${tool.id}/bundle"><button>Download bundle</button></a>
+                </div>
+              </div>
+            </div>`;
+          })
+          .join("");
       }
 
       function normalizePortsResponse(data) {
@@ -165,7 +224,7 @@
         return { ok: false, error: "unexpected response format" };
       }
 
-      const state = { ports: [], portsFilter: "", auditEvents: [], auditFilter: "" };
+      const state = { ports: [], portsFilter: "", auditEvents: [], auditFilter: "", tools: [], toolsLoaded: false };
 
       function setButtonLoading(button, isLoading, label) {
         if (!button) return;
@@ -206,6 +265,29 @@
         } catch (e) {
           setBadge(document.getElementById("agentBadge"), false, "DOWN");
           document.getElementById("agentText").textContent = String(e);
+        }
+      }
+
+      async function refreshTools() {
+        setToolsError("");
+        setButtonLoading(document.getElementById("toolsRefresh"), true, "Refresh Tools");
+        document.getElementById("toolsList").innerHTML = '<div class="muted">Loading...</div>';
+        try {
+          const response = await fetch("/tools");
+          const data = await response.json();
+          if (!response.ok || !Array.isArray(data)) {
+            setToolsError("Failed to load tools");
+            renderTools();
+            return;
+          }
+          state.tools = data;
+          state.toolsLoaded = true;
+          renderTools();
+        } catch (e) {
+          setToolsError(String(e));
+          renderTools();
+        } finally {
+          setButtonLoading(document.getElementById("toolsRefresh"), false, "Refresh Tools");
         }
       }
 
@@ -414,6 +496,8 @@
         state.auditFilter = e.target.value || "";
         renderAudit();
       });
+
+      document.getElementById("toolsRefresh").addEventListener("click", refreshTools);
 
       document.getElementById("portsRefresh").addEventListener("click", refreshPorts);
       document.getElementById("auditRefresh").addEventListener("click", refreshAudit);

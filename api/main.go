@@ -1,12 +1,20 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
+	"embed"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -36,6 +44,31 @@ type auditLog struct {
 	events []AuditEvent
 }
 
+type Tool struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Tags        []string `json:"tags"`
+}
+
+var tools = []Tool{
+	{
+		ID:          "portainer",
+		Name:        "Portainer CE (LTS)",
+		Description: "Docker Compose stack for Portainer CE LTS.",
+		Tags:        []string{"docker", "management"},
+	},
+	{
+		ID:          "ddev",
+		Name:        "DDEV",
+		Description: "Installer script and starter config for DDEV.",
+		Tags:        []string{"php", "web", "local-dev"},
+	},
+}
+
+//go:embed tools/templates/** tools/templates/portainer/.env.example tools/templates/ddev/starter/.ddev/**
+var templateFS embed.FS
+
 func (a *auditLog) recordAudit(action string, ok bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -58,6 +91,68 @@ func (a *auditLog) list() []AuditEvent {
 	out := make([]AuditEvent, len(a.events))
 	copy(out, a.events)
 	return out
+}
+
+func findTool(id string) (Tool, error) {
+	for _, t := range tools {
+		if t.ID == id {
+			return t, nil
+		}
+	}
+	return Tool{}, fmt.Errorf("tool %s not found", id)
+}
+
+func buildBundle(toolID string) (*bytes.Buffer, error) {
+	base := path.Join("tools", "templates", toolID)
+
+	_, err := fs.Stat(templateFS, base)
+	if err != nil {
+		return nil, fmt.Errorf("template path missing: %w", err)
+	}
+
+	buf := &bytes.Buffer{}
+	zw := zip.NewWriter(buf)
+
+	walkErr := fs.WalkDir(templateFS, base, func(p string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+
+		if d.IsDir() {
+			return nil
+		}
+
+		rel := strings.TrimPrefix(p, base+"/")
+		if rel == "" || strings.Contains(rel, "..") {
+			return errors.New("invalid template path")
+		}
+
+		data, err := fs.ReadFile(templateFS, p)
+		if err != nil {
+			return err
+		}
+
+		fw, err := zw.Create(path.Clean(rel))
+		if err != nil {
+			return err
+		}
+
+		if _, err := fw.Write(data); err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+
+	if walkErr != nil {
+		return nil, walkErr
+	}
+
+	return buf, nil
 }
 
 func main() {
@@ -151,6 +246,54 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		events := audit.list()
 		_ = json.NewEncoder(w).Encode(events)
+	})
+
+	mux.HandleFunc("/tools", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(tools)
+	})
+
+	mux.HandleFunc("/tools/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/tools/"), "/")
+		if len(parts) != 2 || parts[1] != "bundle" {
+			http.NotFound(w, r)
+			return
+		}
+
+		toolID := parts[0]
+		action := "tool.download." + toolID
+		ok := false
+		defer func() {
+			audit.recordAudit(action, ok)
+		}()
+
+		tool, err := findTool(toolID)
+		if err != nil {
+			http.Error(w, "tool not found", http.StatusNotFound)
+			return
+		}
+
+		buf, err := buildBundle(tool.ID)
+		if err != nil {
+			log.Printf("bundle error for %s: %v", tool.ID, err)
+			http.Error(w, "failed to build bundle", http.StatusInternalServerError)
+			return
+		}
+
+		ok = true
+		w.Header().Set("Content-Type", "application/zip")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s-bundle.zip\"", tool.ID))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(buf.Bytes())
 	})
 
 	// Serve UI (static)
