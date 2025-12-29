@@ -113,7 +113,13 @@
           const r = await fetch("/ports");
           const j = await r.json();
           if (j.ok) {
-            document.getElementById("portsOutput").textContent = j.output || "(no data)";
+            if (Array.isArray(j.ports) && j.ports.length > 0) {
+              document.getElementById("portsOutput").textContent = JSON.stringify(j.ports, null, 2);
+            } else if (j.output) {
+              document.getElementById("portsOutput").textContent = j.output;
+            } else {
+              document.getElementById("portsOutput").textContent = "(no data)";
+            }
           } else {
             document.getElementById("portsOutput").textContent = j.error || "failed to load ports";
           }
