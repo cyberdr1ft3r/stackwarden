@@ -6,16 +6,27 @@
     <title>StackWarden</title>
     <style>
       body { font-family: system-ui, Arial; max-width: 860px; margin: 40px auto; padding: 0 16px; }
-      .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; margin: 12px 0; }
+      .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; margin: 12px 0; box-shadow: 0 4px 10px rgba(0,0,0,0.02); }
       .row { display:flex; gap: 12px; align-items:center; }
       .badge { padding: 4px 10px; border-radius: 999px; font-size: 12px; border: 1px solid #ccc; }
       .ok { border-color: #2f855a; }
       .down { border-color: #c53030; }
       code { background: #f6f6f6; padding: 2px 6px; border-radius: 6px; }
       button { padding: 10px 14px; border-radius: 10px; border: 1px solid #ccc; background: #fff; cursor:pointer; }
+      button[disabled] { opacity: 0.6; cursor: not-allowed; }
       .nav { display: flex; gap: 12px; margin: 12px 0 20px; }
       .nav a { text-decoration: none; padding: 8px 12px; border-radius: 10px; border: 1px solid #ddd; color: inherit; }
       .nav a.active { background: #f6f6f6; border-color: #aaa; }
+      table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+      th, td { padding: 8px 10px; border-bottom: 1px solid #eee; text-align: left; font-size: 14px; }
+      th { background: #fafafa; font-weight: 600; }
+      .muted { color: #666; font-size: 13px; }
+      .error { color: #c53030; margin-top: 6px; }
+      .pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; background: #f7f7f7; border-radius: 10px; border: 1px solid #eee; font-size: 13px; }
+      .pill strong { font-weight: 600; }
+      .pill.good { border-color: #c6f6d5; color: #2f855a; background: #f0fff4; }
+      .pill.bad { border-color: #fed7d7; color: #c53030; background: #fff5f5; }
+      input[type="text"] { padding: 8px 10px; border-radius: 8px; border: 1px solid #ccc; width: 260px; }
     </style>
   </head>
   <body>
@@ -39,15 +50,49 @@
         <span id="agentText"></span>
       </div>
       <div style="margin-top:14px;">
-        <button onclick="refresh()">Refresh</button>
+        <button onclick="refreshStatus()">Refresh</button>
       </div>
     </div>
 
     <div id="portsSection" class="card" style="display:none;">
       <h3>Listening Ports</h3>
-      <pre id="portsOutput">Loading...</pre>
+      <div class="row" style="justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+        <div class="row" style="gap:8px;">
+          <button id="portsRefreshBtn" onclick="refreshPorts()">Refresh Ports</button>
+          <span id="portsUpdated" class="muted">Not loaded yet</span>
+        </div>
+        <div id="portsError" class="error" style="display:none;"></div>
+      </div>
+      <div id="portsEmpty" class="muted" style="margin-top:8px;">Click Refresh Ports to load data.</div>
+      <table id="portsTable" style="display:none;">
+        <thead>
+          <tr>
+            <th>Proto</th>
+            <th>Local Address</th>
+            <th>Port</th>
+            <th>PID</th>
+            <th>State</th>
+          </tr>
+        </thead>
+        <tbody id="portsTableBody"></tbody>
+      </table>
       <h4>Audit</h4>
-      <pre id="auditOutput">Loading...</pre>
+      <div class="row" style="gap:8px; flex-wrap: wrap;">
+        <button id="auditRefreshBtn" onclick="refreshAudit()">Refresh Audit</button>
+        <input id="auditFilter" type="text" placeholder="Filter by action..." oninput="renderAudit()" />
+        <div id="auditSummary" class="row" style="gap:8px; flex-wrap: wrap;"></div>
+      </div>
+      <div id="auditEmpty" class="muted" style="margin-top:8px;">Click Refresh Audit to load events.</div>
+      <table id="auditTable" style="display:none; margin-top:10px;">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Action</th>
+            <th>Result</th>
+          </tr>
+        </thead>
+        <tbody id="auditTableBody"></tbody>
+      </table>
     </div>
 
     <div class="card">
@@ -80,7 +125,18 @@
         el.className = "badge " + (ok ? "ok" : "down");
       }
 
-      async function refresh() {
+      function setLoading(button, isLoading, idleText, loadingText) {
+        if (!button) return;
+        button.disabled = isLoading;
+        button.textContent = isLoading ? loadingText : idleText;
+      }
+
+      function formatLocalTime(iso) {
+        const d = new Date(iso);
+        return isNaN(d.getTime()) ? "—" : d.toLocaleString();
+      }
+
+      async function refreshStatus() {
         // API
         try {
           const r = await fetch("/health");
@@ -107,41 +163,162 @@
           setBadge(document.getElementById("agentBadge"), false, "DOWN");
           document.getElementById("agentText").textContent = String(e);
         }
+      }
 
-        // Ports
-        try {
-          const r = await fetch("/ports");
-          const j = await r.json();
-          if (j.ok) {
-            if (Array.isArray(j.ports) && j.ports.length > 0) {
-              document.getElementById("portsOutput").textContent = JSON.stringify(j.ports, null, 2);
-            } else if (j.output) {
-              document.getElementById("portsOutput").textContent = j.output;
-            } else {
-              document.getElementById("portsOutput").textContent = "(no data)";
-            }
-          } else {
-            document.getElementById("portsOutput").textContent = j.error || "failed to load ports";
+      function normalizePorts(data) {
+        if (Array.isArray(data)) {
+          return data;
+        }
+        if (data && typeof data === "object") {
+          if ("ok" in data && data.ok === false) {
+            throw new Error(data.error || "failed to load ports");
           }
-        } catch (e) {
-          document.getElementById("portsOutput").textContent = String(e);
+          if (Array.isArray(data.ports)) {
+            return data.ports;
+          }
+          if (Array.isArray(data.data)) {
+            return data.data;
+          }
+          if (Array.isArray(data.output)) {
+            return data.output;
+          }
+        }
+        throw new Error("unexpected response format");
+      }
+
+      function renderPortsTable(ports) {
+        const tbody = document.getElementById("portsTableBody");
+        tbody.innerHTML = "";
+        if (!ports || ports.length === 0) {
+          document.getElementById("portsTable").style.display = "none";
+          document.getElementById("portsEmpty").style.display = "block";
+          return;
         }
 
-        // Audit
+        for (const p of ports) {
+          const tr = document.createElement("tr");
+          const proto = p.protocol || p.proto || p.Proto || "—";
+          const addr = p.local_address || p.localAddress || p.LocalAddress || p.address || p.addr || "—";
+          const port = p.local_port || p.LocalPort || p.port || p.Port || "—";
+          const pid = p.pid || p.PID || p.process || "—";
+          const state = p.state || p.State || "";
+
+          tr.innerHTML = `
+            <td>${proto}</td>
+            <td>${addr}</td>
+            <td>${port}</td>
+            <td>${pid}</td>
+            <td>${state || ""}</td>
+          `;
+          tbody.appendChild(tr);
+        }
+
+        document.getElementById("portsEmpty").style.display = "none";
+        document.getElementById("portsTable").style.display = "table";
+      }
+
+      async function refreshPorts() {
+        const btn = document.getElementById("portsRefreshBtn");
+        const errorEl = document.getElementById("portsError");
+        setLoading(btn, true, "Refresh Ports", "Loading...");
+        errorEl.style.display = "none";
+        errorEl.textContent = "";
+        document.getElementById("portsEmpty").style.display = "block";
+        document.getElementById("portsTable").style.display = "none";
+
+        try {
+          const r = await fetch("/ports");
+          if (!r.ok) {
+            throw new Error(`request failed (${r.status})`);
+          }
+          const data = await r.json();
+          const ports = normalizePorts(data);
+          renderPortsTable(ports);
+          document.getElementById("portsUpdated").textContent = "Last updated: " + new Date().toLocaleTimeString();
+        } catch (e) {
+          errorEl.style.display = "block";
+          errorEl.textContent = e.message || String(e);
+        } finally {
+          setLoading(btn, false, "Refresh Ports", "Loading...");
+        }
+      }
+
+      let auditEvents = [];
+
+      function renderAudit() {
+        const tbody = document.getElementById("auditTableBody");
+        const filter = (document.getElementById("auditFilter").value || "").toLowerCase();
+        const filtered = auditEvents.filter(ev => (ev.action || "").toString().toLowerCase().includes(filter));
+
+        tbody.innerHTML = "";
+        for (const ev of filtered) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${formatLocalTime(ev.time)}</td>
+            <td>${(ev.action || "").toString()}</td>
+            <td>${ev.result ? "✅" : "❌"}</td>
+          `;
+          tbody.appendChild(tr);
+        }
+
+        const summary = document.getElementById("auditSummary");
+        summary.innerHTML = "";
+        const total = filtered.length;
+        const success = filtered.filter(ev => ev.result).length;
+        const failure = total - success;
+        const latest = filtered[filtered.length - 1]?.time;
+
+        const pill = (label, value, extraClass = "") => {
+          const div = document.createElement("div");
+          div.className = `pill ${extraClass}`;
+          div.innerHTML = `<strong>${label}:</strong> ${value}`;
+          summary.appendChild(div);
+        };
+
+        pill("Total events shown (max 50)", total);
+        pill("Success", success, "good");
+        pill("Failure", failure, failure ? "bad" : "");
+        pill("Latest event", latest ? formatLocalTime(latest) : "—");
+
+        const hasData = filtered.length > 0;
+        document.getElementById("auditTable").style.display = hasData ? "table" : "none";
+        document.getElementById("auditEmpty").style.display = hasData ? "none" : "block";
+      }
+
+      async function refreshAudit() {
+        const btn = document.getElementById("auditRefreshBtn");
+        setLoading(btn, true, "Refresh Audit", "Loading...");
+
         try {
           const r = await fetch("/audit");
-          const j = await r.json();
-          document.getElementById("auditOutput").textContent = JSON.stringify(j, null, 2);
+          if (!r.ok) {
+            throw new Error(`request failed (${r.status})`);
+          }
+          const data = await r.json();
+          if (Array.isArray(data)) {
+            auditEvents = data;
+          } else if (data && data.ok === false) {
+            throw new Error(data.error || "failed to load audit events");
+          } else if (Array.isArray(data.events)) {
+            auditEvents = data.events;
+          } else {
+            throw new Error("unexpected response format");
+          }
+          renderAudit();
         } catch (e) {
-          document.getElementById("auditOutput").textContent = String(e);
+          auditEvents = [];
+          document.getElementById("auditSummary").innerHTML = `<div class="error">${e.message || String(e)}</div>`;
+          document.getElementById("auditTable").style.display = "none";
+          document.getElementById("auditEmpty").style.display = "block";
+        } finally {
+          setLoading(btn, false, "Refresh Audit", "Loading...");
         }
       }
 
       window.addEventListener("hashchange", handleRouteChange);
 
       handleRouteChange();
-      refresh();
-      setInterval(refresh, 5000);
+      refreshStatus();
     </script>
   </body>
 </html>
