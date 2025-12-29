@@ -1,0 +1,8 @@
+name: example-project
+type: php
+docroot: web
+php_version: "8.2"
+webserver_type: nginx-fpm
+router_http_port: "80"
+router_https_port: "443"
+use_dns_when_possible: true
