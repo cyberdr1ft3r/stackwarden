@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>StackWarden</title>
+    <style>
+      body { font-family: system-ui, Arial; max-width: 860px; margin: 40px auto; padding: 0 16px; }
+      .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; margin: 12px 0; }
+      .row { display:flex; gap: 12px; align-items:center; }
+      .badge { padding: 4px 10px; border-radius: 999px; font-size: 12px; border: 1px solid #ccc; }
+      .ok { border-color: #2f855a; }
+      .down { border-color: #c53030; }
+      code { background: #f6f6f6; padding: 2px 6px; border-radius: 6px; }
+      button { padding: 10px 14px; border-radius: 10px; border: 1px solid #ccc; background: #fff; cursor:pointer; }
+    </style>
+  </head>
+  <body>
+    <h1>StackWarden</h1>
+    <p>Minimal dashboard host (HTML) + Go API + Go Agent.</p>
+
+    <div class="card">
+      <div class="row">
+        <strong>API</strong>
+        <span id="apiBadge" class="badge">checking...</span>
+        <span id="apiText"></span>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <strong>Agent</strong>
+        <span id="agentBadge" class="badge">checking...</span>
+        <span id="agentText"></span>
+      </div>
+      <div style="margin-top:14px;">
+        <button onclick="refresh()">Refresh</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Endpoints</h3>
+      <ul>
+        <li><code>GET /health</code></li>
+        <li><code>GET /agent/health</code></li>
+      </ul>
+    </div>
+
+    <script>
+      function setBadge(el, ok, text) {
+        el.textContent = text;
+        el.className = "badge " + (ok ? "ok" : "down");
+      }
+
+      async function refresh() {
+        // API
+        try {
+          const r = await fetch("/health");
+          const j = await r.json();
+          setBadge(document.getElementById("apiBadge"), true, "OK");
+          document.getElementById("apiText").textContent = j.service + " / " + j.status;
+        } catch (e) {
+          setBadge(document.getElementById("apiBadge"), false, "DOWN");
+          document.getElementById("apiText").textContent = String(e);
+        }
+
+        // Agent
+        try {
+          const r = await fetch("/agent/health");
+          const j = await r.json();
+          if (j.ok) {
+            setBadge(document.getElementById("agentBadge"), true, "OK");
+            document.getElementById("agentText").textContent = j.service + " / " + j.status;
+          } else {
+            setBadge(document.getElementById("agentBadge"), false, "DOWN");
+            document.getElementById("agentText").textContent = j.error || "unknown error";
+          }
+        } catch (e) {
+          setBadge(document.getElementById("agentBadge"), false, "DOWN");
+          document.getElementById("agentText").textContent = String(e);
+        }
+      }
+
+      refresh();
+      setInterval(refresh, 5000);
+    </script>
+  </body>
+</html>
