@@ -16,6 +16,7 @@ func collectPorts(ctx context.Context) PortsResponse {
 		parser func(string) []Port
 	}{
 		{[]string{"ss", "-lntup"}, parseSSOutput},
+		{[]string{"netstat", "-tulpn"}, parseNetstatOutput},
 		{[]string{"netstat", "-lntup"}, parseNetstatOutput},
 	}
 
