@@ -301,8 +301,9 @@ func main() {
 	fs := http.FileServer(http.Dir(uiDir))
 	mux.Handle("/", fs)
 
-	addr := "127.0.0.1:8080"
-	log.Printf("api listening on http://%s", addr)
+	port := "8080"
+	addr := fmt.Sprintf("0.0.0.0:%s", port)
+	log.Printf("Listening on 0.0.0.0:%s", port)
 	log.Printf("serving ui from %s", uiDir)
 	log.Fatal(http.ListenAndServe(addr, mux))
 }
