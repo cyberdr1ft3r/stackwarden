@@ -98,9 +98,8 @@ The API exposes:
 ### 3) Open the UI
 
 If the API serves the UI:
-```
-http://127.0.0.1:8080
-```
+- Local: `http://127.0.0.1:8080/`
+- Remote: `http://<server-ip>:8080/`
 
 Or open directly:
 ```
