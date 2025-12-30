@@ -13,6 +13,8 @@ type MetricsResponse struct {
 	shared.OperationResult
 	CPUUsagePercent float64     `json:"cpu_usage_percent,omitempty"`
 	MemUsagePercent float64     `json:"mem_usage_percent,omitempty"`
+	MemTotalBytes   uint64      `json:"mem_total_bytes,omitempty"`
+	MemUsedBytes    uint64      `json:"mem_used_bytes,omitempty"`
 	DiskUsage       []DiskUsage `json:"disk_usage,omitempty"`
 	UptimeSeconds   float64     `json:"uptime_seconds,omitempty"`
 	Errors          []string    `json:"errors,omitempty"`

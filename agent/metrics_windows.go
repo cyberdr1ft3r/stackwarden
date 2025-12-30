@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os/exec"
 	"strconv"
@@ -24,7 +25,9 @@ func collectMetrics(ctx context.Context) MetricsResponse {
 	}
 
 	if mem, err := readMemUsageWindows(ctx); err == nil {
-		resp.MemUsagePercent = mem
+		resp.MemUsagePercent = mem.UsagePercent
+		resp.MemTotalBytes = mem.TotalBytes
+		resp.MemUsedBytes = mem.UsedBytes
 		hasData = true
 	} else {
 		errorsList = append(errorsList, "memory: "+err.Error())
@@ -50,110 +53,126 @@ func collectMetrics(ctx context.Context) MetricsResponse {
 }
 
 func readCPUUsageWindows(ctx context.Context) (float64, error) {
-	out, err := runCommand(ctx, "wmic", "cpu", "get", "loadpercentage", "/value")
-	if err != nil {
-		return 0, err
+	sample, err := readCPUUsageWithTypeperf(ctx)
+	if err == nil {
+		return sample, nil
 	}
 
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(strings.ToLower(line), "loadpercentage=") {
-			parts := strings.SplitN(line, "=", 2)
-			if len(parts) != 2 {
-				continue
-			}
-			v, err := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
-			if err != nil {
-				continue
-			}
-			return v, nil
-		}
+	if sample, errPS := readCPUUsageWithPowershell(ctx); errPS == nil {
+		return sample, nil
 	}
 
 	return 0, errors.New("load percentage not found")
 }
 
-func readMemUsageWindows(ctx context.Context) (float64, error) {
-	out, err := runCommand(ctx, "wmic", "OS", "get", "FreePhysicalMemory,TotalVisibleMemorySize", "/value")
+type windowsMem struct {
+	UsagePercent float64
+	TotalBytes   uint64
+	UsedBytes    uint64
+}
+
+func readMemUsageWindows(ctx context.Context) (windowsMem, error) {
+	cmd := `(Get-CimInstance Win32_OperatingSystem | Select-Object -Property TotalVisibleMemorySize,FreePhysicalMemory | ConvertTo-Json -Compress)`
+	out, err := runCommand(ctx, "powershell", "-Command", cmd)
 	if err != nil {
-		return 0, err
+		return windowsMem{}, err
 	}
 
-	var free, total float64
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(strings.ToLower(line), "freephysicalmemory=") {
-			parts := strings.SplitN(line, "=", 2)
-			if len(parts) == 2 {
-				free, _ = strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
-			}
-		} else if strings.HasPrefix(strings.ToLower(line), "totalvisiblememorysize=") {
-			parts := strings.SplitN(line, "=", 2)
-			if len(parts) == 2 {
-				total, _ = strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
-			}
-		}
+	type memInfo struct {
+		TotalVisibleMemorySize uint64 `json:"TotalVisibleMemorySize"`
+		FreePhysicalMemory     uint64 `json:"FreePhysicalMemory"`
 	}
 
-	if total <= 0 {
-		return 0, errors.New("missing memory totals")
+	var info memInfo
+	if err := json.Unmarshal([]byte(out), &info); err != nil {
+		return windowsMem{}, err
 	}
 
-	used := total - free
-	if used < 0 {
-		used = 0
+	if info.TotalVisibleMemorySize == 0 {
+		return windowsMem{}, errors.New("missing memory totals")
 	}
 
-	return (used / total) * 100, nil
+	usedKB := info.TotalVisibleMemorySize - info.FreePhysicalMemory
+	if info.FreePhysicalMemory > info.TotalVisibleMemorySize {
+		usedKB = 0
+	}
+	totalBytes := info.TotalVisibleMemorySize * 1024
+	usedBytes := usedKB * 1024
+
+	usage := (float64(usedKB) / float64(info.TotalVisibleMemorySize)) * 100
+	if usage < 0 {
+		usage = 0
+	}
+
+	return windowsMem{
+		UsagePercent: usage,
+		TotalBytes:   totalBytes,
+		UsedBytes:    usedBytes,
+	}, nil
 }
 
 func readDiskUsageWindows(ctx context.Context) ([]DiskUsage, error) {
-	out, err := runCommand(ctx, "wmic", "logicaldisk", "get", "name,freespace,size", "/format:csv")
+	cmd := `(Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" | Select-Object DeviceID,Size,FreeSpace | ConvertTo-Json -Compress)`
+	out, err := runCommand(ctx, "powershell", "-Command", cmd)
 	if err != nil {
 		return nil, err
 	}
 
-	lines := strings.Split(out, "\n")
-	var disks []DiskUsage
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(strings.ToLower(line), "node") {
+	var raw json.RawMessage
+	dec := json.NewDecoder(strings.NewReader(out))
+	dec.UseNumber()
+	if err := dec.Decode(&raw); err != nil {
+		return nil, err
+	}
+
+	// Output may be object or array depending on single/multiple disks.
+	if len(raw) == 0 {
+		return nil, errors.New("no disk data")
+	}
+
+	var disks []map[string]interface{}
+	if raw[0] == '[' {
+		if err := json.Unmarshal(raw, &disks); err != nil {
+			return nil, err
+		}
+	} else {
+		var single map[string]interface{}
+		if err := json.Unmarshal(raw, &single); err != nil {
+			return nil, err
+		}
+		disks = append(disks, single)
+	}
+
+	var results []DiskUsage
+	for _, d := range disks {
+		mount, _ := d["DeviceID"].(string)
+		if mount == "" {
 			continue
 		}
 
-		parts := strings.Split(line, ",")
-		if len(parts) != 4 {
+		sizeNum, _ := d["Size"].(json.Number)
+		freeNum, _ := d["FreeSpace"].(json.Number)
+
+		sizeFloat, _ := sizeNum.Float64()
+		freeFloat, _ := freeNum.Float64()
+		if sizeFloat <= 0 {
 			continue
 		}
 
-		freeStr := strings.TrimSpace(parts[1])
-		name := strings.TrimSpace(parts[2])
-		sizeStr := strings.TrimSpace(parts[3])
-
-		if name == "" {
-			continue
-		}
-
-		free, _ := strconv.ParseFloat(freeStr, 64)
-		size, _ := strconv.ParseFloat(sizeStr, 64)
-		if size <= 0 {
-			continue
-		}
-
-		used := size - free
+		used := sizeFloat - freeFloat
 		if used < 0 {
 			used = 0
 		}
 
-		usage := (used / size) * 100
-		disks = append(disks, DiskUsage{Mount: name, UsagePercent: usage})
+		usage := (used / sizeFloat) * 100
+		results = append(results, DiskUsage{Mount: mount, UsagePercent: usage})
 	}
 
-	if len(disks) == 0 {
+	if len(results) == 0 {
 		return nil, errors.New("no disk data")
 	}
 
-	return disks, nil
+	return results, nil
 }
 
 func readUptimeWindows(ctx context.Context) (float64, error) {
@@ -188,4 +207,56 @@ func runCommand(ctx context.Context, name string, args ...string) (string, error
 	cmd := exec.CommandContext(ctx, name, args...)
 	output, err := cmd.CombinedOutput()
 	return string(output), err
+}
+
+func readCPUUsageWithTypeperf(ctx context.Context) (float64, error) {
+	out, err := runCommand(ctx, "typeperf", `\Processor(_Total)\% Processor Time`, "-sc", "1")
+	if err != nil {
+		return 0, err
+	}
+
+	return parseTypeperfValue(out)
+}
+
+func readCPUUsageWithPowershell(ctx context.Context) (float64, error) {
+	cmd := `Get-Counter '\Processor(_Total)\% Processor Time' -SampleInterval 1 -MaxSamples 1 | Select -ExpandProperty CounterSamples | Select -First 1 | Select -ExpandProperty CookedValue`
+	out, err := runCommand(ctx, "powershell", "-Command", cmd)
+	if err != nil {
+		return 0, err
+	}
+
+	valueStr := strings.TrimSpace(out)
+	valueStr = strings.Trim(valueStr, "\"")
+	valueStr = strings.ReplaceAll(valueStr, ",", "")
+	return strconv.ParseFloat(valueStr, 64)
+}
+
+func parseTypeperfValue(output string) (float64, error) {
+	lines := strings.Split(output, "\n")
+	var lastVal float64
+	found := false
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.Contains(strings.ToLower(line), "pdh-csv") {
+			continue
+		}
+
+		parts := strings.Split(line, ",")
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			part = strings.Trim(part, "\"")
+			part = strings.ReplaceAll(part, ",", "")
+			if v, err := strconv.ParseFloat(part, 64); err == nil {
+				lastVal = v
+				found = true
+			}
+		}
+	}
+
+	if !found {
+		return 0, errors.New("no cpu samples")
+	}
+
+	return lastVal, nil
 }
