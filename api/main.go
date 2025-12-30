@@ -237,6 +237,51 @@ func main() {
 			return
 		}
 
+		statusOK := resp.StatusCode >= 200 && resp.StatusCode < 300
+		bodyOK := false
+		var payload struct {
+			OK bool `json:"ok"`
+		}
+		if err := json.Unmarshal(body, &payload); err == nil {
+			bodyOK = payload.OK
+		}
+
+		ok = statusOK && bodyOK
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	})
+
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		ok := false
+		defer func() {
+			audit.recordAudit("metrics.read", ok)
+		}()
+
+		agentBase := getenv("AGENT_BASE", "http://127.0.0.1:9091")
+		agentURL := agentBase + "/metrics"
+
+		client := &http.Client{Timeout: 3 * time.Second}
+		resp, err := client.Get(agentURL)
+		if err != nil {
+			_ = json.NewEncoder(w).Encode(shared.OperationResult{OK: false, Error: err.Error()})
+			return
+		}
+		defer resp.Body.Close()
+
+		w.WriteHeader(resp.StatusCode)
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			_ = json.NewEncoder(w).Encode(shared.OperationResult{OK: false, Error: "failed to read agent response: " + err.Error()})
+			return
+		}
+
+		if len(body) == 0 {
+			_ = json.NewEncoder(w).Encode(shared.OperationResult{OK: false, Error: "empty response from agent"})
+			return
+		}
+
 		ok = resp.StatusCode >= 200 && resp.StatusCode < 300
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(body)

@@ -32,6 +32,7 @@
 
     <div class="nav">
       <a id="navHome" href="#/">Home</a>
+      <a id="navMetrics" href="#/metrics">Metrics</a>
       <a id="navPorts" href="#/ports">Ports</a>
       <a id="navTools" href="#/tools">Tools</a>
     </div>
@@ -50,6 +51,28 @@
       <div style="margin-top:14px;">
         <button id="statusRefresh">Refresh</button>
       </div>
+    </div>
+
+    <div id="metricsSection" class="card" style="display:none;">
+      <div style="display:flex; justify-content: space-between; align-items:center; flex-wrap: wrap; gap: 10px;">
+        <h3 style="margin:0;">Metrics</h3>
+      </div>
+      <p class="muted" style="margin: 6px 0 10px;">CPU, memory, disk usage, and uptime from the agent (auto-loaded).</p>
+      <div id="metricsError" class="error" style="display:none;"></div>
+      <div id="metricsSummary" class="summary muted">Loading metrics...</div>
+      <div id="metricsUpdated" class="muted"></div>
+      <table style="margin-top: 12px;">
+        <thead>
+          <tr>
+            <th>Mount</th>
+            <th>Usage %</th>
+          </tr>
+        </thead>
+        <tbody id="metricsDisksBody">
+          <tr><td colspan="2" class="muted">Disk metrics pending refresh</td></tr>
+        </tbody>
+      </table>
+      <div id="metricsNotes" class="muted" style="margin-top: 8px;"></div>
     </div>
 
     <div id="portsSection" class="card" style="display:none;">
@@ -119,6 +142,7 @@
       <ul>
         <li><code>GET /health</code></li>
         <li><code>GET /agent/health</code></li>
+        <li><code>GET /metrics</code></li>
         <li><code>GET /ports</code></li>
         <li><code>GET /audit</code></li>
         <li><code>GET /tools</code></li>
@@ -129,14 +153,17 @@
     <script>
       function setRoute(route) {
         const isHome = route === "#/" || route === "#";
+        const isMetrics = route === "#/metrics";
         const isPorts = route === "#/ports";
         const isTools = route === "#/tools";
 
         document.getElementById("statusSection").style.display = isHome ? "block" : "none";
+        document.getElementById("metricsSection").style.display = isMetrics ? "block" : "none";
         document.getElementById("portsSection").style.display = isPorts ? "block" : "none";
         document.getElementById("toolsSection").style.display = isTools ? "block" : "none";
 
         document.getElementById("navHome").classList.toggle("active", isHome);
+        document.getElementById("navMetrics").classList.toggle("active", isMetrics);
         document.getElementById("navPorts").classList.toggle("active", isPorts);
         document.getElementById("navTools").classList.toggle("active", isTools);
       }
@@ -146,6 +173,11 @@
         setRoute(route);
         if (route === "#/") {
           refreshStatus();
+        } else if (route === "#/metrics") {
+          if (!state.metricsLoading) {
+            refreshMetrics();
+          }
+          renderMetrics();
         } else if (route === "#/tools") {
           if (!state.toolsLoaded) {
             refreshTools();
@@ -167,6 +199,39 @@
           errorEl.textContent = "";
           errorEl.style.display = "none";
         }
+      }
+
+      function setMetricsError(message) {
+        const errorEl = document.getElementById("metricsError");
+        if (message) {
+          errorEl.textContent = message;
+          errorEl.style.display = "block";
+        } else {
+          errorEl.textContent = "";
+          errorEl.style.display = "none";
+        }
+      }
+
+      function normalizeMetricsResponse(data) {
+        if (!data || typeof data !== "object") {
+          return { ok: false, error: "unexpected response format" };
+        }
+
+        const errors = Array.isArray(data.errors) ? data.errors : [];
+        const disks = Array.isArray(data.disk_usage) ? data.disk_usage : Array.isArray(data.diskUsage) ? data.diskUsage : [];
+        const metrics = {
+          cpu: data.cpu_usage_percent ?? data.cpuUsagePercent,
+          mem: data.mem_usage_percent ?? data.memory_usage_percent ?? data.memUsagePercent,
+          disks,
+          uptime: data.uptime_seconds ?? data.uptimeSeconds,
+          errors,
+        };
+
+        const hasAny = metrics.cpu !== undefined || metrics.mem !== undefined || metrics.uptime !== undefined || (metrics.disks && metrics.disks.length);
+        const ok = typeof data.ok === "boolean" ? data.ok : hasAny;
+        const errorMessage = errors.length ? errors.join("; ") : data.error || "";
+
+        return { ok, metrics, error: errorMessage };
       }
 
       function renderTools() {
@@ -224,12 +289,29 @@
         return { ok: false, error: "unexpected response format" };
       }
 
-      const state = { ports: [], portsFilter: "", auditEvents: [], auditFilter: "", tools: [], toolsLoaded: false };
+      const state = {
+        ports: [],
+        portsFilter: "",
+        auditEvents: [],
+        auditFilter: "",
+        tools: [],
+        toolsLoaded: false,
+        metrics: null,
+        metricsUpdated: "",
+        metricsLoading: false,
+      };
 
       function setButtonLoading(button, isLoading, label) {
         if (!button) return;
         button.disabled = isLoading;
         button.textContent = isLoading ? "Loading..." : label;
+      }
+
+      function formatPercent(value) {
+        if (value === undefined || value === null || Number.isNaN(Number(value))) {
+          return "n/a";
+        }
+        return `${Number(value).toFixed(1)}%`;
       }
 
       function formatLocalTime(value) {
@@ -239,6 +321,21 @@
           return value;
         }
         return d.toLocaleString();
+      }
+
+      function formatDuration(seconds) {
+        if (seconds === undefined || seconds === null || Number.isNaN(Number(seconds)) || seconds < 0) {
+          return "n/a";
+        }
+        const totalSeconds = Math.floor(Number(seconds));
+        const days = Math.floor(totalSeconds / 86400);
+        const hours = Math.floor((totalSeconds % 86400) / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const parts = [];
+        if (days) parts.push(`${days}d`);
+        if (hours || days) parts.push(`${hours}h`);
+        parts.push(`${minutes}m`);
+        return parts.join(" ");
       }
 
       async function refreshStatus() {
@@ -265,6 +362,80 @@
         } catch (e) {
           setBadge(document.getElementById("agentBadge"), false, "DOWN");
           document.getElementById("agentText").textContent = String(e);
+        }
+      }
+
+      function renderMetrics() {
+        const summaryEl = document.getElementById("metricsSummary");
+        const disksBody = document.getElementById("metricsDisksBody");
+        const updatedEl = document.getElementById("metricsUpdated");
+        const notesEl = document.getElementById("metricsNotes");
+
+        if (!state.metrics) {
+          summaryEl.textContent = state.metricsLoading ? "Loading metrics..." : "Waiting for metrics...";
+          disksBody.innerHTML = '<tr><td colspan="2" class="muted">Disk metrics pending</td></tr>';
+          updatedEl.textContent = "";
+          notesEl.textContent = "";
+          return;
+        }
+
+        const metrics = state.metrics;
+        const cpu = formatPercent(metrics.cpu);
+        const mem = formatPercent(metrics.mem);
+        const uptime = formatDuration(metrics.uptime);
+
+        summaryEl.innerHTML = `<div>CPU: <strong>${cpu}</strong></div>
+          <div>RAM: <strong>${mem}</strong></div>
+          <div>Uptime: <strong>${uptime}</strong></div>`;
+        updatedEl.textContent = state.metricsUpdated ? `Last updated: ${state.metricsUpdated}` : "";
+
+        const disks = Array.isArray(metrics.disks) ? metrics.disks : [];
+        if (!disks.length) {
+          disksBody.innerHTML = '<tr><td colspan="2" class="muted">No disk data</td></tr>';
+        } else {
+          disksBody.innerHTML = disks
+            .map((d) => {
+              const mount = d.mount || d.Mount || d.name || "-";
+              const percent = d.usage_percent ?? d.UsagePercent ?? d.usagePercent;
+              return `<tr><td>${mount}</td><td>${formatPercent(percent)}</td></tr>`;
+            })
+            .join("");
+        }
+
+        const errorNotes = metrics.errors && metrics.errors.length ? `Notes: ${metrics.errors.join("; ")}` : "";
+        notesEl.textContent = errorNotes;
+      }
+
+      async function refreshMetrics() {
+        if (state.metricsLoading) return;
+        state.metricsLoading = true;
+        setMetricsError("");
+        document.getElementById("metricsSummary").textContent = "Loading...";
+        document.getElementById("metricsDisksBody").innerHTML = '<tr><td colspan="2" class="muted">Loading...</td></tr>';
+        document.getElementById("metricsUpdated").textContent = "";
+        document.getElementById("metricsNotes").textContent = "";
+
+        try {
+          const response = await fetch("/metrics");
+          const data = await response.json();
+          const normalized = normalizeMetricsResponse(data);
+          if (!response.ok || !normalized.ok) {
+            const message = normalized.error || `Request failed (${response.status})`;
+            setMetricsError(message);
+            state.metrics = normalized.metrics;
+            state.metricsUpdated = "";
+            renderMetrics();
+            return;
+          }
+
+          state.metrics = normalized.metrics;
+          state.metricsUpdated = new Date().toLocaleTimeString();
+          renderMetrics();
+        } catch (e) {
+          setMetricsError(String(e));
+          renderMetrics();
+        } finally {
+          state.metricsLoading = false;
         }
       }
 
