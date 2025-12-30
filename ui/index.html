@@ -137,16 +137,23 @@
       <div id="toolsList"></div>
     </div>
 
-    <div class="card">
-      <h3>Endpoints</h3>
+    <div id="aboutSection" class="card">
+      <div style="display:flex; justify-content: space-between; align-items:center; flex-wrap: wrap; gap: 10px;">
+        <h3 style="margin:0;">About</h3>
+        <span id="versionBadge" class="badge">loading...</span>
+      </div>
+      <div id="aboutError" class="error" style="display:none;"></div>
+      <div id="aboutDetails" class="muted">Loading version...</div>
+      <h4 style="margin-top:12px;">Endpoints</h4>
       <ul>
-        <li><code>GET /health</code></li>
-        <li><code>GET /agent/health</code></li>
-        <li><code>GET /metrics</code></li>
-        <li><code>GET /ports</code></li>
-        <li><code>GET /audit</code></li>
-        <li><code>GET /tools</code></li>
-        <li><code>GET /tools/&lt;id&gt;/bundle</code></li>
+        <li><a href="/health"><code>GET /health</code></a></li>
+        <li><a href="/agent/health"><code>GET /agent/health</code></a></li>
+        <li><a href="/version"><code>GET /version</code></a></li>
+        <li><a href="/metrics"><code>GET /metrics</code></a></li>
+        <li><a href="/ports"><code>GET /ports</code></a></li>
+        <li><a href="/audit"><code>GET /audit</code></a></li>
+        <li><a href="/tools"><code>GET /tools</code></a></li>
+        <li><a href="/tools/portainer/bundle"><code>GET /tools/&lt;id&gt;/bundle</code></a></li>
       </ul>
     </div>
 
@@ -158,6 +165,7 @@
         const isTools = route === "#/tools";
 
         document.getElementById("statusSection").style.display = isHome ? "block" : "none";
+        document.getElementById("aboutSection").style.display = isHome ? "block" : "none";
         document.getElementById("metricsSection").style.display = isMetrics ? "block" : "none";
         document.getElementById("portsSection").style.display = isPorts ? "block" : "none";
         document.getElementById("toolsSection").style.display = isTools ? "block" : "none";
@@ -173,6 +181,11 @@
         setRoute(route);
         if (route === "#/") {
           refreshStatus();
+          if (!state.versionInfo && !state.versionError && !state.versionLoading) {
+            refreshVersion();
+          } else {
+            renderVersion();
+          }
         } else if (route === "#/metrics") {
           if (!state.metricsLoading) {
             refreshMetrics();
@@ -299,6 +312,9 @@
         metrics: null,
         metricsUpdated: "",
         metricsLoading: false,
+        versionInfo: null,
+        versionError: "",
+        versionLoading: false,
       };
 
       function setButtonLoading(button, isLoading, label) {
@@ -459,6 +475,69 @@
           renderTools();
         } finally {
           setButtonLoading(document.getElementById("toolsRefresh"), false, "Refresh Tools");
+        }
+      }
+
+      function renderVersion() {
+        const badge = document.getElementById("versionBadge");
+        const details = document.getElementById("aboutDetails");
+        const errorEl = document.getElementById("aboutError");
+
+        if (state.versionError) {
+          badge.textContent = "DOWN";
+          badge.className = "badge down";
+          details.textContent = "Version info unavailable";
+          errorEl.textContent = state.versionError;
+          errorEl.style.display = "block";
+          return;
+        }
+
+        errorEl.style.display = "none";
+
+        if (state.versionLoading) {
+          badge.textContent = "loading...";
+          badge.className = "badge";
+          details.textContent = "Loading version...";
+          return;
+        }
+
+        if (!state.versionInfo) {
+          badge.textContent = "pending";
+          badge.className = "badge";
+          details.textContent = "Version not loaded yet";
+          return;
+        }
+
+        const info = state.versionInfo;
+        const name = info.name || "StackWarden";
+        const version = info.version || "unknown";
+        const commit = info.commit ? ` • Commit: ${info.commit}` : "";
+        const builtAt = info.builtAt ? ` • Built: ${formatLocalTime(info.builtAt)}` : "";
+
+        badge.textContent = `v${version}`;
+        badge.className = "badge ok";
+        details.innerHTML = `<div><strong>${name}</strong></div><div class="muted">Version: ${version}${commit}${builtAt}</div>`;
+      }
+
+      async function refreshVersion() {
+        if (state.versionLoading) return;
+        state.versionLoading = true;
+        state.versionError = "";
+        renderVersion();
+        try {
+          const response = await fetch("/version");
+          const data = await response.json();
+          if (!response.ok || !data || typeof data !== "object") {
+            throw new Error("Failed to load version");
+          }
+          state.versionInfo = data;
+          state.versionError = "";
+        } catch (e) {
+          state.versionInfo = null;
+          state.versionError = String(e);
+        } finally {
+          state.versionLoading = false;
+          renderVersion();
         }
       }
 
@@ -676,6 +755,7 @@
 
       window.addEventListener("hashchange", handleRouteChange);
 
+      refreshVersion();
       handleRouteChange();
     </script>
   </body>

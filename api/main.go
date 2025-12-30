@@ -51,6 +51,13 @@ type Tool struct {
 	Tags        []string `json:"tags"`
 }
 
+type VersionInfo struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	Commit  string `json:"commit,omitempty"`
+	BuiltAt string `json:"builtAt,omitempty"`
+}
+
 var tools = []Tool{
 	{
 		ID:          "portainer",
@@ -65,6 +72,14 @@ var tools = []Tool{
 		Tags:        []string{"php", "web", "local-dev"},
 	},
 }
+
+const projectName = "StackWarden"
+
+var (
+	version = "dev"
+	commit  string
+	builtAt string
+)
 
 //go:embed tools/templates/** tools/templates/portainer/.env.example tools/templates/ddev/starter/.ddev/**
 var templateFS embed.FS
@@ -165,11 +180,24 @@ func main() {
 		_ = json.NewEncoder(w).Encode(Health{Status: "ok", Service: "api"})
 	})
 
+	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		info := VersionInfo{
+			Name:    projectName,
+			Version: version,
+			Commit:  commit,
+			BuiltAt: builtAt,
+		}
+
+		_ = json.NewEncoder(w).Encode(info)
+	})
+
 	// Proxy health check to agent
 	mux.HandleFunc("/agent/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
-		agentURL := getenv("AGENT_URL", "http://127.0.0.1:9091/health")
+		agentURL := buildAgentURL("/health")
 
 		client := &http.Client{Timeout: 2 * time.Second}
 		resp, err := client.Get(agentURL)
@@ -213,8 +241,7 @@ func main() {
 			audit.recordAudit("ports.read", ok)
 		}()
 
-		agentBase := getenv("AGENT_BASE", "http://127.0.0.1:9091")
-		agentURL := agentBase + "/ports"
+		agentURL := buildAgentURL("/ports")
 
 		client := &http.Client{Timeout: 3 * time.Second}
 		resp, err := client.Get(agentURL)
@@ -258,8 +285,7 @@ func main() {
 			audit.recordAudit("metrics.read", ok)
 		}()
 
-		agentBase := getenv("AGENT_BASE", "http://127.0.0.1:9091")
-		agentURL := agentBase + "/metrics"
+		agentURL := buildAgentURL("/metrics")
 
 		client := &http.Client{Timeout: 3 * time.Second}
 		resp, err := client.Get(agentURL)
@@ -342,13 +368,12 @@ func main() {
 	})
 
 	// Serve UI (static)
-	uiDir := filepath.Clean(filepath.Join("..", "ui"))
+	uiDir := resolveUIDir()
 	fs := http.FileServer(http.Dir(uiDir))
 	mux.Handle("/", fs)
 
-	port := "8080"
-	addr := fmt.Sprintf("0.0.0.0:%s", port)
-	log.Printf("Listening on 0.0.0.0:%s", port)
+	addr := getenv("API_BIND", ":8080")
+	log.Printf("Listening on %s", addr)
 	log.Printf("serving ui from %s", uiDir)
 	log.Fatal(http.ListenAndServe(addr, mux))
 }
@@ -358,4 +383,31 @@ func getenv(k, def string) string {
 		return v
 	}
 	return def
+}
+
+func buildAgentURL(p string) string {
+	base := getenv("AGENT_BASE", getenv("AGENT_URL", "http://127.0.0.1:9091"))
+	base = strings.TrimRight(base, "/")
+	if base == "" {
+		return p
+	}
+	return base + p
+}
+
+func resolveUIDir() string {
+	candidates := []string{
+		filepath.Join(".", "ui"),
+		filepath.Join("..", "ui"),
+	}
+
+	for _, c := range candidates {
+		if info, err := os.Stat(c); err == nil && info.IsDir() {
+			if abs, err := filepath.Abs(c); err == nil {
+				return abs
+			}
+			return filepath.Clean(c)
+		}
+	}
+
+	return filepath.Clean(filepath.Join(".", "ui"))
 }
