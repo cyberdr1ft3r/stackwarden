@@ -237,7 +237,16 @@ func main() {
 			return
 		}
 
-		ok = resp.StatusCode >= 200 && resp.StatusCode < 300
+		statusOK := resp.StatusCode >= 200 && resp.StatusCode < 300
+		bodyOK := false
+		var payload struct {
+			OK bool `json:"ok"`
+		}
+		if err := json.Unmarshal(body, &payload); err == nil {
+			bodyOK = payload.OK
+		}
+
+		ok = statusOK && bodyOK
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(body)
 	})
