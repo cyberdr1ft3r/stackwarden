@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -41,7 +42,14 @@ func main() {
 		_ = json.NewEncoder(w).Encode(resp)
 	})
 
-	addr := "127.0.0.1:9091"
-	log.Printf("agent listening on http://%s", addr)
+	addr := getenv("AGENT_BIND", ":9091")
+	log.Printf("agent listening on %s", addr)
 	log.Fatal(http.ListenAndServe(addr, mux))
+}
+
+func getenv(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }
