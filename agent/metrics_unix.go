@@ -57,7 +57,7 @@ func readCPUUsage(ctx context.Context) (float64, error) {
 		return 0, err
 	}
 
-	wait := time.After(120 * time.Millisecond)
+	wait := time.After(200 * time.Millisecond)
 	select {
 	case <-ctx.Done():
 		return 0, ctx.Err()
@@ -203,7 +203,7 @@ func readDiskUsage() ([]DiskUsage, error) {
 
 		mountPoint := parts[1]
 		fsType := parts[2]
-		if skipFilesystem(fsType) || seen[mountPoint] {
+		if skipFilesystem(fsType) || skipMountpoint(mountPoint) || seen[mountPoint] {
 			continue
 		}
 		seen[mountPoint] = true
@@ -249,6 +249,25 @@ func skipFilesystem(fsType string) bool {
 	default:
 		return false
 	}
+}
+
+func skipMountpoint(mount string) bool {
+	if mount == "" {
+		return true
+	}
+
+	if mount == "/snap" || strings.HasPrefix(mount, "/snap/") {
+		return true
+	}
+
+	pseudoPrefixes := []string{"/proc", "/sys", "/run", "/dev"}
+	for _, prefix := range pseudoPrefixes {
+		if mount == prefix || strings.HasPrefix(mount, prefix+"/") {
+			return true
+		}
+	}
+
+	return false
 }
 
 func readUptime() (float64, error) {
