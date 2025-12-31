@@ -24,6 +24,9 @@
       .error { color: #c53030; margin-top: 8px; }
       .summary { display: flex; gap: 12px; flex-wrap: wrap; font-size: 14px; margin: 6px 0 10px; }
       .result-icon { font-size: 16px; }
+      pre { background: #f6f6f6; padding: 10px; border-radius: 8px; overflow: auto; }
+      .status-ok { color: #2f855a; }
+      .status-muted { color: #555; }
     </style>
   </head>
   <body>
@@ -132,7 +135,7 @@
         <h3 style="margin:0;">Tools</h3>
         <button id="toolsRefresh">Refresh Tools</button>
       </div>
-      <p class="muted" style="margin-top:6px;">Download ready-to-use bundles.</p>
+      <p class="muted" style="margin-top:6px;">Install tools directly on the server (agent-side). Downloads are available as an optional secondary action.</p>
       <div id="toolsError" class="error" style="display:none;"></div>
       <div id="toolsList"></div>
     </div>
@@ -153,6 +156,7 @@
         <li><a href="/ports"><code>GET /ports</code></a></li>
         <li><a href="/audit"><code>GET /audit</code></a></li>
         <li><a href="/tools"><code>GET /tools</code></a></li>
+        <li><code>POST /tools/&lt;id&gt;/install</code></li>
         <li><a href="/tools/portainer/bundle"><code>GET /tools/&lt;id&gt;/bundle</code></a></li>
       </ul>
     </div>
@@ -256,16 +260,39 @@
 
         container.innerHTML = state.tools
           .map((tool) => {
-            const tags = (tool.tags || []).map((t) => `<span class="badge">${t}</span>`).join(" ");
+            const tags = (tool.tags || []).map((t) => `<span class="badge">${escapeHtml(t)}</span>`).join(" ");
+            const installState = state.toolInstalls[tool.id] || {};
+            const buttonLabel = installState.loading ? "Installing..." : "Install on server";
+            const buttonDisabled = installState.loading ? "disabled" : "";
+            const installKind = tool.install_kind || "bundle";
+            const servicePorts = Array.isArray(tool.service_ports) && tool.service_ports.length ? tool.service_ports.join(", ") : "";
+            let statusHTML = '<div class="muted">No install attempts yet.</div>';
+
+            if (installState.loading) {
+              statusHTML = '<div class="muted">Installing on server...</div>';
+            } else if (installState.message) {
+              const cls = installState.ok ? "status-ok" : "error";
+              const pathNote = installState.path ? ` · Path: <code>${escapeHtml(installState.path)}</code>` : "";
+              const outputBlock = installState.output
+                ? `<details style="margin-top:6px;"><summary>Show output</summary><pre>${escapeHtml(installState.output)}</pre></details>`
+                : "";
+              statusHTML = `<div class="${cls}">${escapeHtml(installState.message)}${pathNote}</div>${outputBlock}`;
+            }
+
             return `<div class="card" style="margin:12px 0;">
               <div style="display:flex; justify-content: space-between; align-items:flex-start; gap: 12px; flex-wrap: wrap;">
                 <div>
-                  <h4 style="margin:0 0 6px 0;">${tool.name || tool.id}</h4>
-                  <p style="margin: 0 0 6px 0;">${tool.description || ""}</p>
+                  <h4 style="margin:0 0 6px 0;">${escapeHtml(tool.name || tool.id)}</h4>
+                  <p style="margin: 0 0 6px 0;">${escapeHtml(tool.description || "")}</p>
+                  <div class="muted" style="margin: 6px 0;">Install kind: <code>${escapeHtml(installKind)}</code>${servicePorts ? ` • Ports: ${escapeHtml(servicePorts)}` : ""}</div>
                   <div style="display:flex; gap:6px; flex-wrap: wrap;">${tags}</div>
+                  <div style="margin-top:8px;">${statusHTML}</div>
                 </div>
                 <div>
-                  <a href="/tools/${tool.id}/bundle"><button>Download bundle</button></a>
+                  <div style="display:flex; flex-direction: column; gap: 8px; align-items:flex-end;">
+                    <button data-install="${tool.id}" onclick="installTool('${tool.id}')" ${buttonDisabled}>${buttonLabel}</button>
+                    <a class="muted" href="/tools/${tool.id}/bundle" style="font-size:13px; text-align:right;">Download to my PC</a>
+                  </div>
                 </div>
               </div>
             </div>`;
@@ -309,6 +336,7 @@
         auditFilter: "",
         tools: [],
         toolsLoaded: false,
+        toolInstalls: {},
         metrics: null,
         metricsUpdated: "",
         metricsLoading: false,
@@ -352,6 +380,25 @@
         if (hours || days) parts.push(`${hours}h`);
         parts.push(`${minutes}m`);
         return parts.join(" ");
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function normalizeInstallResponse(response, data) {
+        const ok = data && typeof data.ok === "boolean" ? data.ok : response?.ok;
+        const message =
+          (data && (data.message || data.error)) ||
+          (response && !response.ok ? `Request failed (${response.status})` : "Install complete");
+        const output = data && data.output ? data.output : "";
+        const path = data && data.path ? data.path : "";
+        return { ok: !!ok, message, output, path };
       }
 
       async function refreshStatus() {
@@ -476,6 +523,25 @@
         } finally {
           setButtonLoading(document.getElementById("toolsRefresh"), false, "Refresh Tools");
         }
+      }
+
+      async function installTool(toolId) {
+        state.toolInstalls[toolId] = { loading: true };
+        renderTools();
+        try {
+          const response = await fetch(`/tools/${toolId}/install`, { method: "POST" });
+          let data = null;
+          try {
+            data = await response.json();
+          } catch (_) {
+            data = null;
+          }
+          const normalized = normalizeInstallResponse(response, data || {});
+          state.toolInstalls[toolId] = { ...normalized, loading: false };
+        } catch (e) {
+          state.toolInstalls[toolId] = { loading: false, ok: false, message: String(e) };
+        }
+        renderTools();
       }
 
       function renderVersion() {

@@ -42,6 +42,8 @@ func main() {
 		_ = json.NewEncoder(w).Encode(resp)
 	})
 
+	mux.HandleFunc("/tools/", installToolHandler)
+
 	addr := getenv("AGENT_BIND", ":9091")
 	log.Printf("agent listening on %s", addr)
 	log.Fatal(http.ListenAndServe(addr, mux))
