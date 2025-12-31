@@ -5,12 +5,31 @@ package main
 import (
 	"context"
 	"os/exec"
+	"sort"
 	"strings"
 
 	shared "github.com/m0b3u/stackwarden/pkg"
 )
 
 func collectPorts(ctx context.Context) PortsResponse {
+	var attempts []string
+	var lastOutput string
+
+	if ports, output, err := listPortsWithSS(ctx); err == nil {
+		return PortsResponse{
+			OperationResult: shared.OperationResult{
+				OK:     true,
+				Output: output,
+			},
+			Ports: ports,
+		}
+	} else {
+		if output != "" {
+			lastOutput = output
+		}
+		attempts = append(attempts, "ss: "+err.Error())
+	}
+
 	commands := []struct {
 		args   []string
 		parser func(string) []Port
@@ -19,9 +38,6 @@ func collectPorts(ctx context.Context) PortsResponse {
 		{[]string{"netstat", "-tulpn"}, parseNetstatOutput},
 		{[]string{"netstat", "-lntup"}, parseNetstatOutput},
 	}
-
-	var attempts []string
-	var lastOutput string
 
 	for _, cmdCfg := range commands {
 		cmd := exec.CommandContext(ctx, cmdCfg.args[0], cmdCfg.args[1:]...)
@@ -59,6 +75,67 @@ func collectPorts(ctx context.Context) PortsResponse {
 			Error:  errorMsg,
 		},
 	}
+}
+
+func listPortsWithSS(ctx context.Context) ([]Port, string, error) {
+	cmd := exec.CommandContext(ctx, "ss", "-H", "-ltn")
+	out, err := cmd.CombinedOutput()
+	output := string(out)
+	if err != nil {
+		if len(output) == 0 {
+			output = err.Error()
+		}
+		return nil, output, err
+	}
+
+	ports := parseSSLtnOutput(output)
+	return ports, output, nil
+}
+
+func parseSSLtnOutput(output string) []Port {
+	var ports []Port
+	seenPorts := make(map[int]Port)
+
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "State") {
+			continue
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+
+		localField := fields[3]
+		addr, port, err := splitAddressPort(localField)
+		if err != nil {
+			continue
+		}
+
+		if _, exists := seenPorts[port]; exists {
+			continue
+		}
+
+		state := strings.ToUpper(fields[0])
+		seenPorts[port] = Port{
+			Protocol:     "tcp",
+			LocalAddress: addr,
+			LocalPort:    port,
+			State:        state,
+		}
+	}
+
+	for _, p := range seenPorts {
+		ports = append(ports, p)
+	}
+
+	sort.Slice(ports, func(i, j int) bool {
+		return ports[i].LocalPort < ports[j].LocalPort
+	})
+
+	return ports
 }
 
 func parseSSOutput(output string) []Port {

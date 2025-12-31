@@ -11,7 +11,7 @@ type DiskUsage struct {
 // MetricsResponse is returned by the /metrics handler.
 type MetricsResponse struct {
 	shared.OperationResult
-	CPUUsagePercent float64     `json:"cpu_usage_percent,omitempty"`
+	CPUUsagePercent float64     `json:"cpu_usage_percent"`
 	MemUsagePercent float64     `json:"mem_usage_percent,omitempty"`
 	MemTotalBytes   uint64      `json:"mem_total_bytes,omitempty"`
 	MemUsedBytes    uint64      `json:"mem_used_bytes,omitempty"`
