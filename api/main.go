@@ -3,7 +3,6 @@ package main
 import (
 	"archive/zip"
 	"bytes"
-	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +18,7 @@ import (
 	"time"
 
 	shared "github.com/m0b3u/stackwarden/pkg"
+	"github.com/m0b3u/stackwarden/pkg/tools"
 )
 
 type Health struct {
@@ -33,6 +33,13 @@ type AgentHealth struct {
 	Error   string `json:"error,omitempty"`
 }
 
+type installResponse struct {
+	OK      bool   `json:"ok"`
+	Message string `json:"message,omitempty"`
+	Output  string `json:"output,omitempty"`
+	Path    string `json:"path,omitempty"`
+}
+
 type AuditEvent struct {
 	Time   string `json:"time"`
 	Action string `json:"action"`
@@ -44,33 +51,11 @@ type auditLog struct {
 	events []AuditEvent
 }
 
-type Tool struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Tags        []string `json:"tags"`
-}
-
 type VersionInfo struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
 	Commit  string `json:"commit,omitempty"`
 	BuiltAt string `json:"builtAt,omitempty"`
-}
-
-var tools = []Tool{
-	{
-		ID:          "portainer",
-		Name:        "Portainer CE (LTS)",
-		Description: "Docker Compose stack for Portainer CE LTS.",
-		Tags:        []string{"docker", "management"},
-	},
-	{
-		ID:          "ddev",
-		Name:        "DDEV",
-		Description: "Installer script and starter config for DDEV.",
-		Tags:        []string{"php", "web", "local-dev"},
-	},
 }
 
 const projectName = "StackWarden"
@@ -80,9 +65,6 @@ var (
 	commit  string
 	builtAt string
 )
-
-//go:embed tools/templates/** tools/templates/portainer/.env.example tools/templates/ddev/starter/.ddev/**
-var templateFS embed.FS
 
 func (a *auditLog) recordAudit(action string, ok bool) {
 	a.mu.Lock()
@@ -108,19 +90,13 @@ func (a *auditLog) list() []AuditEvent {
 	return out
 }
 
-func findTool(id string) (Tool, error) {
-	for _, t := range tools {
-		if t.ID == id {
-			return t, nil
-		}
-	}
-	return Tool{}, fmt.Errorf("tool %s not found", id)
-}
-
 func buildBundle(toolID string) (*bytes.Buffer, error) {
-	base := path.Join("tools", "templates", toolID)
+	base, err := tools.TemplateBasePath(toolID)
+	if err != nil {
+		return nil, fmt.Errorf("template path missing: %w", err)
+	}
 
-	_, err := fs.Stat(templateFS, base)
+	_, err = fs.Stat(tools.TemplateFS(), base)
 	if err != nil {
 		return nil, fmt.Errorf("template path missing: %w", err)
 	}
@@ -128,7 +104,7 @@ func buildBundle(toolID string) (*bytes.Buffer, error) {
 	buf := &bytes.Buffer{}
 	zw := zip.NewWriter(buf)
 
-	walkErr := fs.WalkDir(templateFS, base, func(p string, d fs.DirEntry, walkErr error) error {
+	walkErr := fs.WalkDir(tools.TemplateFS(), base, func(p string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -142,7 +118,7 @@ func buildBundle(toolID string) (*bytes.Buffer, error) {
 			return errors.New("invalid template path")
 		}
 
-		data, err := fs.ReadFile(templateFS, p)
+		data, err := fs.ReadFile(tools.TemplateFS(), p)
 		if err != nil {
 			return err
 		}
@@ -168,6 +144,74 @@ func buildBundle(toolID string) (*bytes.Buffer, error) {
 	}
 
 	return buf, nil
+}
+
+func handleToolInstall(w http.ResponseWriter, r *http.Request, audit *auditLog) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/tools/"), "/")
+	if len(parts) != 2 || parts[1] != "install" {
+		http.NotFound(w, r)
+		return
+	}
+
+	toolID := parts[0]
+	action := "tool.install." + toolID
+	ok := false
+	defer func() {
+		audit.recordAudit(action, ok)
+	}()
+
+	if _, err := tools.Find(toolID); err != nil {
+		http.Error(w, "tool not found", http.StatusNotFound)
+		return
+	}
+
+	agentURL := buildAgentURL("/tools/" + toolID + "/install")
+	client := &http.Client{Timeout: 65 * time.Second}
+	resp, err := client.Post(agentURL, "application/json", nil)
+	if err != nil {
+		w.WriteHeader(http.StatusBadGateway)
+		_ = json.NewEncoder(w).Encode(installResponse{
+			OK:      false,
+			Message: "failed to reach agent",
+			Output:  err.Error(),
+		})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		w.WriteHeader(http.StatusBadGateway)
+		_ = json.NewEncoder(w).Encode(installResponse{
+			OK:      false,
+			Message: "failed to read agent response",
+			Output:  err.Error(),
+		})
+		return
+	}
+
+	var payload installResponse
+	if err := json.Unmarshal(body, &payload); err == nil {
+		ok = payload.OK
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+
+	if len(body) == 0 {
+		_ = json.NewEncoder(w).Encode(installResponse{
+			OK:      false,
+			Message: "empty response from agent",
+		})
+		return
+	}
+
+	_, _ = w.Write(body)
 }
 
 func main() {
@@ -325,18 +369,22 @@ func main() {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(tools)
+		_ = json.NewEncoder(w).Encode(tools.Catalog)
 	})
 
 	mux.HandleFunc("/tools/", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/tools/"), "/")
+		if len(parts) != 2 || parts[1] != "bundle" {
+			if len(parts) == 2 && parts[1] == "install" {
+				handleToolInstall(w, r, audit)
+				return
+			}
+			http.NotFound(w, r)
 			return
 		}
 
-		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/tools/"), "/")
-		if len(parts) != 2 || parts[1] != "bundle" {
-			http.NotFound(w, r)
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
@@ -347,7 +395,7 @@ func main() {
 			audit.recordAudit(action, ok)
 		}()
 
-		tool, err := findTool(toolID)
+		tool, err := tools.Find(toolID)
 		if err != nil {
 			http.Error(w, "tool not found", http.StatusNotFound)
 			return

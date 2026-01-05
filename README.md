@@ -31,7 +31,15 @@ Useful commands:
 - Health checks (API + Agent)
 - Ports visibility (API proxies the agent)
 - Audit log (last 50 events)
+- Tool catalog with server-side installs (agent executes installs)
 - Minimal UI (no frameworks) with manual refresh controls
+
+## Tool installs
+- Installs are executed on the **server** by the agent (no browser downloads required).
+- Tool files and artifacts are staged under `/var/lib/stackwarden/tools/<id>/`.
+- Compose tools require Docker (or Docker Compose) running on the host.
+- DDEV install flow targets Debian/Ubuntu; other operating systems return “not supported yet.”
+- Bundles remain downloadable as an optional client-side ZIP.
 
 ## Manual API checks (optional)
 ```bash
@@ -41,6 +49,7 @@ curl -s http://127.0.0.1:8080/version
 curl -s http://127.0.0.1:8080/metrics
 curl -s http://127.0.0.1:8080/ports
 curl -s http://127.0.0.1:8080/audit
+curl -X POST -s http://127.0.0.1:8080/tools/portainer/install
 ```
 
 ## Architecture
