@@ -106,6 +106,28 @@
           <tr><td colspan="6" class="muted">Click Refresh Ports to load data</td></tr>
         </tbody>
       </table>
+      <h4 style="margin-top:16px;">Recent Port Events</h4>
+      <div class="row" style="justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 10px;">
+        <div style="display:flex; gap: 8px; align-items: center;">
+          <button id="portEventsRefresh">Refresh Events</button>
+        </div>
+        <span id="portEventsMeta" class="muted"></span>
+      </div>
+      <div id="portEventsError" class="error" style="display:none;"></div>
+      <div id="portEventsSummary" class="summary muted">Click Refresh Events to load data</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Kind</th>
+            <th>Port</th>
+            <th>Details</th>
+          </tr>
+        </thead>
+        <tbody id="portEventsTableBody">
+          <tr><td colspan="4" class="muted">No events loaded</td></tr>
+        </tbody>
+      </table>
       <h4>Audit</h4>
       <div class="row" style="justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 10px;">
         <div style="display:flex; gap: 8px; align-items: center;">
@@ -154,6 +176,7 @@
         <li><a href="/version"><code>GET /version</code></a></li>
         <li><a href="/metrics"><code>GET /metrics</code></a></li>
         <li><a href="/ports"><code>GET /ports</code></a></li>
+        <li><a href="/port-events"><code>GET /port-events</code></a></li>
         <li><a href="/audit"><code>GET /audit</code></a></li>
         <li><a href="/tools"><code>GET /tools</code></a></li>
         <li><code>POST /tools/&lt;id&gt;/install</code></li>
@@ -195,6 +218,10 @@
             refreshMetrics();
           }
           renderMetrics();
+        } else if (route === "#/ports") {
+          if (!state.portEventsLoaded) {
+            refreshPortEvents({ silent: true });
+          }
         } else if (route === "#/tools") {
           if (!state.toolsLoaded) {
             refreshTools();
@@ -329,9 +356,29 @@
         return { ok: false, error: "unexpected response format" };
       }
 
+      function normalizePortEventsResponse(data) {
+        if (Array.isArray(data)) {
+          return { ok: true, events: data };
+        }
+
+        if (data && typeof data === "object") {
+          if ("ok" in data && !data.ok) {
+            return { ok: false, error: data.error || data.message || "failed to load port events" };
+          }
+          const payloads = [data.events, data.data];
+          for (const candidate of payloads) {
+            if (Array.isArray(candidate)) return { ok: true, events: candidate };
+          }
+        }
+
+        return { ok: false, error: "unexpected response format" };
+      }
+
       const state = {
         ports: [],
         portsFilter: "",
+        portEvents: [],
+        portEventsLoaded: false,
         auditEvents: [],
         auditFilter: "",
         tools: [],
@@ -700,6 +747,97 @@
         } finally {
           setButtonLoading(document.getElementById("portsRefresh"), false, "Refresh Ports");
         }
+
+        // Also refresh port events after a port refresh
+        refreshPortEvents({ silent: true });
+      }
+
+      function setPortEventsError(message) {
+        const errorEl = document.getElementById("portEventsError");
+        if (message) {
+          errorEl.textContent = message;
+          errorEl.style.display = "block";
+        } else {
+          errorEl.textContent = "";
+          errorEl.style.display = "none";
+        }
+      }
+
+      function renderPortEvents() {
+        const tbody = document.getElementById("portEventsTableBody");
+        const summary = document.getElementById("portEventsSummary");
+        const meta = document.getElementById("portEventsMeta");
+
+        if (!state.portEvents.length) {
+          tbody.innerHTML = '<tr><td colspan="4" class="muted">No port events yet. Click Refresh Events.</td></tr>';
+          summary.textContent = "No port events";
+          meta.textContent = "";
+          return;
+        }
+
+        const ordered = state.portEvents
+          .slice()
+          .sort((a, b) => new Date(b.time || b.Time).getTime() - new Date(a.time || a.Time).getTime());
+        const latest = ordered[0];
+        summary.textContent = `Events shown: ${ordered.length} (max 100) · Latest: ${formatLocalTime(latest.time || latest.Time)}`;
+        meta.textContent = "";
+
+        tbody.innerHTML = ordered
+          .map((e) => {
+            const time = formatLocalTime(e.time || e.Time);
+            const kind = e.kind || e.Kind || "";
+            const port = e.port || e.Port || {};
+            const proto = port.protocol || port.Protocol || "";
+            const addr = port.local_address || port.LocalAddress || port.localAddress || "";
+            const portNum = port.local_port ?? port.LocalPort ?? port.localPort ?? "";
+            const portLabel = [proto, addr ? `${addr}:${portNum || ""}` : portNum || ""].filter(Boolean).join(" ");
+            const details = escapeHtml(e.details || e.Details || "");
+            return `<tr>
+              <td>${time}</td>
+              <td>${kind}</td>
+              <td>${escapeHtml(portLabel)}</td>
+              <td>${details || ""}</td>
+            </tr>`;
+          })
+          .join("");
+      }
+
+      async function refreshPortEvents(options = {}) {
+        const silent = !!options.silent;
+        setPortEventsError("");
+        const tbody = document.getElementById("portEventsTableBody");
+        const summary = document.getElementById("portEventsSummary");
+        const meta = document.getElementById("portEventsMeta");
+
+        summary.textContent = "Loading events...";
+        meta.textContent = "";
+        tbody.innerHTML = '<tr><td colspan="4" class="muted">Loading...</td></tr>';
+        if (!silent) {
+          setButtonLoading(document.getElementById("portEventsRefresh"), true, "Refresh Events");
+        }
+
+        try {
+          const response = await fetch("/port-events");
+          const data = await response.json();
+          const normalized = normalizePortEventsResponse(data);
+          if (!response.ok || !normalized.ok) {
+            const errorMessage = normalized.error || `Request failed (${response.status})`;
+            setPortEventsError(errorMessage);
+            renderPortEvents();
+            return;
+          }
+
+          state.portEvents = normalized.events || [];
+          state.portEventsLoaded = true;
+          renderPortEvents();
+        } catch (e) {
+          setPortEventsError(String(e));
+          renderPortEvents();
+        } finally {
+          if (!silent) {
+            setButtonLoading(document.getElementById("portEventsRefresh"), false, "Refresh Events");
+          }
+        }
       }
 
       function normalizeAuditResponse(data) {
@@ -813,6 +951,7 @@
         renderAudit();
       });
 
+      document.getElementById("portEventsRefresh").addEventListener("click", () => refreshPortEvents({ silent: false }));
       document.getElementById("toolsRefresh").addEventListener("click", refreshTools);
 
       document.getElementById("portsRefresh").addEventListener("click", refreshPorts);

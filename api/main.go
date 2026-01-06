@@ -51,6 +51,46 @@ type auditLog struct {
 	events []AuditEvent
 }
 
+type PortEntry struct {
+	Protocol     string `json:"protocol"`
+	LocalAddress string `json:"local_address"`
+	LocalPort    int    `json:"local_port"`
+	PID          int    `json:"pid,omitempty"`
+	State        string `json:"state,omitempty"`
+	Process      string `json:"process,omitempty"`
+}
+
+type PortsPayload struct {
+	OK    bool        `json:"ok"`
+	Ports []PortEntry `json:"ports,omitempty"`
+	Data  []PortEntry `json:"data,omitempty"`
+}
+
+type PortRef struct {
+	Protocol     string `json:"protocol"`
+	LocalAddress string `json:"local_address"`
+	LocalPort    int    `json:"local_port"`
+}
+
+type PortEvent struct {
+	Time    string  `json:"time"`
+	Kind    string  `json:"kind"`
+	Port    PortRef `json:"port"`
+	Details string  `json:"details,omitempty"`
+}
+
+type portEventLog struct {
+	mu     sync.Mutex
+	events []PortEvent
+	limit  int
+}
+
+type portSnapshot struct {
+	mu          sync.Mutex
+	last        []PortEntry
+	initialized bool
+}
+
 type VersionInfo struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
@@ -88,6 +128,227 @@ func (a *auditLog) list() []AuditEvent {
 	out := make([]AuditEvent, len(a.events))
 	copy(out, a.events)
 	return out
+}
+
+func (l *portEventLog) append(events ...PortEvent) {
+	if len(events) == 0 {
+		return
+	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.events = append(l.events, events...)
+	if l.limit > 0 && len(l.events) > l.limit {
+		l.events = l.events[len(l.events)-l.limit:]
+	}
+}
+
+func (l *portEventLog) list() []PortEvent {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	out := make([]PortEvent, len(l.events))
+	copy(out, l.events)
+	return out
+}
+
+func (s *portSnapshot) diffAndStore(current []PortEntry) []PortEvent {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	currCopy := clonePorts(current)
+	if !s.initialized {
+		s.last = currCopy
+		s.initialized = true
+		return nil
+	}
+
+	events := diffPorts(s.last, currCopy)
+	s.last = currCopy
+	s.initialized = true
+	return events
+}
+
+func clonePorts(in []PortEntry) []PortEntry {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]PortEntry, len(in))
+	copy(out, in)
+	return out
+}
+
+func portKey(p PortEntry) string {
+	return strings.ToLower(strings.TrimSpace(p.Protocol)) + "|" + strings.TrimSpace(p.LocalAddress) + "|" + fmt.Sprint(p.LocalPort)
+}
+
+func isPublicBind(addr string) bool {
+	switch strings.TrimSpace(strings.ToLower(addr)) {
+	case "0.0.0.0", "::", "*":
+		return true
+	default:
+		return false
+	}
+}
+
+func isLocalBind(addr string) bool {
+	switch strings.TrimSpace(strings.ToLower(addr)) {
+	case "127.0.0.1", "::1":
+		return true
+	default:
+		return false
+	}
+}
+
+func exposureCategory(addr string) string {
+	if isPublicBind(addr) {
+		return "public"
+	}
+	if isLocalBind(addr) {
+		return "local"
+	}
+	return ""
+}
+
+func diffPorts(prev, curr []PortEntry) []PortEvent {
+	events := make([]PortEvent, 0)
+	prevByKey := make(map[string]PortEntry, len(prev))
+	prevByProtoPort := make(map[string][]PortEntry)
+	currByKey := make(map[string]PortEntry, len(curr))
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+
+	for _, p := range prev {
+		prevByKey[portKey(p)] = p
+		ppKey := protoPortKey(p)
+		prevByProtoPort[ppKey] = append(prevByProtoPort[ppKey], p)
+	}
+	for _, p := range curr {
+		currByKey[portKey(p)] = p
+	}
+
+	consumedPrev := make(map[string]bool)
+
+	for key, currPort := range currByKey {
+		if prevPort, ok := prevByKey[key]; ok {
+			prevExposure := exposureCategory(prevPort.LocalAddress)
+			currExposure := exposureCategory(currPort.LocalAddress)
+			if prevExposure != "" && currExposure != "" && prevExposure != currExposure {
+				events = append(events, PortEvent{
+					Time: now,
+					Kind: "exposure",
+					Port: PortRef{
+						Protocol:     currPort.Protocol,
+						LocalAddress: currPort.LocalAddress,
+						LocalPort:    currPort.LocalPort,
+					},
+					Details: fmt.Sprintf("address changed: %s -> %s", prevPort.LocalAddress, currPort.LocalAddress),
+				})
+			}
+			continue
+		}
+
+		ppKey := protoPortKey(currPort)
+		if prevList, ok := prevByProtoPort[ppKey]; ok {
+			currExposure := exposureCategory(currPort.LocalAddress)
+			for _, prevPort := range prevList {
+				prevExposure := exposureCategory(prevPort.LocalAddress)
+				if prevExposure != "" && currExposure != "" && prevExposure != currExposure {
+					events = append(events, PortEvent{
+						Time: now,
+						Kind: "exposure",
+						Port: PortRef{
+							Protocol:     currPort.Protocol,
+							LocalAddress: currPort.LocalAddress,
+							LocalPort:    currPort.LocalPort,
+						},
+						Details: fmt.Sprintf("address changed: %s -> %s", prevPort.LocalAddress, currPort.LocalAddress),
+					})
+					consumedPrev[portKey(prevPort)] = true
+					goto nextPort
+				}
+			}
+		}
+
+		events = append(events, PortEvent{
+			Time: now,
+			Kind: "opened",
+			Port: PortRef{
+				Protocol:     currPort.Protocol,
+				LocalAddress: currPort.LocalAddress,
+				LocalPort:    currPort.LocalPort,
+			},
+			Details: portDetails(currPort, "opened"),
+		})
+
+	nextPort:
+	}
+
+	for key, prevPort := range prevByKey {
+		if _, ok := currByKey[key]; ok {
+			continue
+		}
+		if consumedPrev[key] {
+			continue
+		}
+
+		events = append(events, PortEvent{
+			Time: now,
+			Kind: "closed",
+			Port: PortRef{
+				Protocol:     prevPort.Protocol,
+				LocalAddress: prevPort.LocalAddress,
+				LocalPort:    prevPort.LocalPort,
+			},
+			Details: portDetails(prevPort, "closed"),
+		})
+	}
+
+	return events
+}
+
+func protoPortKey(p PortEntry) string {
+	return strings.ToLower(strings.TrimSpace(p.Protocol)) + "|" + fmt.Sprint(p.LocalPort)
+}
+
+func portDetails(p PortEntry, action string) string {
+	var extras []string
+	if p.PID > 0 {
+		extras = append(extras, fmt.Sprintf("pid=%d", p.PID))
+	}
+	if p.Process != "" {
+		extras = append(extras, p.Process)
+	}
+	parts := []string{strings.ToUpper(p.Protocol), fmt.Sprintf("%s:%d", p.LocalAddress, p.LocalPort), action}
+	if len(extras) > 0 {
+		parts = append(parts, strings.Join(extras, " "))
+	}
+	return strings.Join(parts, " ")
+}
+
+func parsePorts(body []byte) ([]PortEntry, error) {
+	var payload PortsPayload
+	if err := json.Unmarshal(body, &payload); err == nil {
+		if payload.OK || len(payload.Ports) > 0 || len(payload.Data) > 0 {
+			if !payload.OK && len(payload.Ports) == 0 && len(payload.Data) == 0 {
+				return nil, fmt.Errorf("ports response not OK")
+			}
+			if len(payload.Ports) > 0 {
+				return payload.Ports, nil
+			}
+			if len(payload.Data) > 0 {
+				return payload.Data, nil
+			}
+			return []PortEntry{}, nil
+		}
+	}
+
+	var direct []PortEntry
+	if err := json.Unmarshal(body, &direct); err == nil {
+		return direct, nil
+	}
+
+	return nil, fmt.Errorf("unable to parse ports response")
 }
 
 func buildBundle(toolID string) (*bytes.Buffer, error) {
@@ -217,6 +478,8 @@ func handleToolInstall(w http.ResponseWriter, r *http.Request, audit *auditLog) 
 func main() {
 	mux := http.NewServeMux()
 	audit := &auditLog{}
+	portEvents := &portEventLog{limit: 100}
+	portsSnapshot := &portSnapshot{}
 
 	// API health
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -320,6 +583,14 @@ func main() {
 		ok = statusOK && bodyOK
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(body)
+
+		if ok {
+			if ports, err := parsePorts(body); err == nil {
+				if events := portsSnapshot.diffAndStore(ports); len(events) > 0 {
+					portEvents.append(events...)
+				}
+			}
+		}
 	})
 
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
@@ -360,6 +631,12 @@ func main() {
 	mux.HandleFunc("/audit", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		events := audit.list()
+		_ = json.NewEncoder(w).Encode(events)
+	})
+
+	mux.HandleFunc("/port-events", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		events := portEvents.list()
 		_ = json.NewEncoder(w).Encode(events)
 	})
 
