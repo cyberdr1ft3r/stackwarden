@@ -4,7 +4,7 @@ BIN_DIR ?= bin
 ROOT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
 AGENT_BIND ?= :9091
-PORT ?=
+PORT ?= 8080
 API_BIND ?= :8080
 AGENT_BASE ?= http://127.0.0.1:9091
 
@@ -30,11 +30,9 @@ run-agent:
 
 run-api:
 	@if [ -z "$(API_MAIN_DIR)" ]; then echo "Unable to locate API main package"; exit 1; fi
-	@API_BIND_OVERRIDE="$(API_BIND)"; \
-	if [ -n "$(PORT)" ]; then API_BIND_OVERRIDE=":$(PORT)"; fi; \
-	echo "Starting API on $$API_BIND_OVERRIDE"; \
-	echo "Running: API_BIND=$$API_BIND_OVERRIDE AGENT_BASE=$(AGENT_BASE) $(GO) run $(API_MAIN_TARGET)"; \
-	cd $(ROOT_DIR) && API_BIND=$$API_BIND_OVERRIDE AGENT_BASE=$(AGENT_BASE) $(GO) run $(API_MAIN_TARGET)
+	@echo "Starting API on port $(PORT)"
+	@echo "Running: AGENT_BASE=$(AGENT_BASE) $(GO) run $(API_MAIN_TARGET) --port $(PORT)"
+	@cd $(ROOT_DIR) && AGENT_BASE=$(AGENT_BASE) $(GO) run $(API_MAIN_TARGET) --port $(PORT)
 
 test:
 	$(GO) test -C agent ./...

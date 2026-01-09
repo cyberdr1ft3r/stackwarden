@@ -5,14 +5,17 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -794,7 +797,14 @@ func main() {
 	fs := http.FileServer(http.Dir(uiDir))
 	mux.Handle("/", fs)
 
-	addr := getenv("API_BIND", ":8080")
+	portFlagUsed := portFlagProvided(os.Args[1:])
+	port := flag.Int("port", 8080, "API listen port")
+	flag.Parse()
+
+	addr, err := resolveAPIBind(*port, portFlagUsed)
+	if err != nil {
+		log.Fatal(err)
+	}
 	log.Printf("Listening on %s", addr)
 	log.Printf("serving ui from %s", uiDir)
 	log.Fatal(http.ListenAndServe(addr, mux))
@@ -832,4 +842,50 @@ func resolveUIDir() string {
 	}
 
 	return filepath.Clean(filepath.Join(".", "ui"))
+}
+
+func resolveAPIBind(port int, portFlagProvided bool) (string, error) {
+	if portFlagProvided {
+		if port < 1 || port > 65535 {
+			return "", fmt.Errorf("invalid port: %d", port)
+		}
+		return fmt.Sprintf(":%d", port), nil
+	}
+
+	if bind := os.Getenv("API_BIND"); bind != "" {
+		return validateBind(bind)
+	}
+
+	return ":8080", nil
+}
+
+func validateBind(bind string) (string, error) {
+	if !strings.Contains(bind, ":") {
+		return "", fmt.Errorf("invalid bind address: %q", bind)
+	}
+
+	_, portStr, err := net.SplitHostPort(bind)
+	if err != nil {
+		return "", fmt.Errorf("invalid bind address: %q", bind)
+	}
+
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port < 1 || port > 65535 {
+		return "", fmt.Errorf("invalid bind port: %q", bind)
+	}
+
+	return bind, nil
+}
+
+func portFlagProvided(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--port" || arg == "-port" {
+			return true
+		}
+		if strings.HasPrefix(arg, "--port=") || strings.HasPrefix(arg, "-port=") {
+			return true
+		}
+	}
+	return false
 }
