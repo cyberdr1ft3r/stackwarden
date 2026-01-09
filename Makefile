@@ -8,7 +8,8 @@ PORT ?=
 API_BIND ?= :8080
 AGENT_BASE ?= http://127.0.0.1:9091
 
-API_MAIN_DIR := $(shell cd $(ROOT_DIR) && $(GO) list -f '{{if eq .Name "main"}}{{.ImportPath}} {{.Dir}}{{end}}' ./... | awk '$$1 ~ /\/api(\/|$$)/ {print $$2; exit}')
+API_MAIN_DIR := $(shell cd $(ROOT_DIR) && rg -l --no-messages '^package main$$' -g '*.go' | rg 'api/' | sed -n '1{s|/[^/]*$$||;p;}')
+API_MAIN_TARGET := ./$(API_MAIN_DIR)
 
 VERSION ?= dev
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "")
@@ -32,8 +33,8 @@ run-api:
 	@API_BIND_OVERRIDE="$(API_BIND)"; \
 	if [ -n "$(PORT)" ]; then API_BIND_OVERRIDE=":$(PORT)"; fi; \
 	echo "Starting API on $$API_BIND_OVERRIDE"; \
-	echo "Running: API_BIND=$$API_BIND_OVERRIDE AGENT_BASE=$(AGENT_BASE) $(GO) run $(API_MAIN_DIR)"; \
-	cd $(ROOT_DIR) && API_BIND=$$API_BIND_OVERRIDE AGENT_BASE=$(AGENT_BASE) $(GO) run $(API_MAIN_DIR)
+	echo "Running: API_BIND=$$API_BIND_OVERRIDE AGENT_BASE=$(AGENT_BASE) $(GO) run $(API_MAIN_TARGET)"; \
+	cd $(ROOT_DIR) && API_BIND=$$API_BIND_OVERRIDE AGENT_BASE=$(AGENT_BASE) $(GO) run $(API_MAIN_TARGET)
 
 test:
 	$(GO) test -C agent ./...
