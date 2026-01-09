@@ -407,19 +407,11 @@ func buildBundle(toolID string) (*bytes.Buffer, error) {
 	return buf, nil
 }
 
-func handleToolInstall(w http.ResponseWriter, r *http.Request, audit *auditLog) {
+func handleToolInstall(w http.ResponseWriter, r *http.Request, audit *auditLog, toolID string) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-
-	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/tools/"), "/")
-	if len(parts) != 2 || parts[1] != "install" {
-		http.NotFound(w, r)
-		return
-	}
-
-	toolID := parts[0]
 	action := "tool.install." + toolID
 	ok := false
 	defer func() {
@@ -472,6 +464,98 @@ func handleToolInstall(w http.ResponseWriter, r *http.Request, audit *auditLog) 
 		return
 	}
 
+	_, _ = w.Write(body)
+}
+
+func handleToolStatus(w http.ResponseWriter, r *http.Request, audit *auditLog, toolID string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	action := "tool.status." + toolID
+	ok := false
+	defer func() {
+		audit.recordAudit(action, ok)
+	}()
+
+	if _, err := tools.Find(toolID); err != nil {
+		http.Error(w, "tool not found", http.StatusNotFound)
+		return
+	}
+
+	agentURL := buildAgentURL("/tools/" + toolID + "/status")
+	client := &http.Client{Timeout: 35 * time.Second}
+	resp, err := client.Get(agentURL)
+	if err != nil {
+		w.WriteHeader(http.StatusBadGateway)
+		_ = json.NewEncoder(w).Encode(shared.OperationResult{OK: false, Error: "failed to reach agent: " + err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		w.WriteHeader(http.StatusBadGateway)
+		_ = json.NewEncoder(w).Encode(shared.OperationResult{OK: false, Error: "failed to read agent response: " + err.Error()})
+		return
+	}
+
+	if len(body) == 0 {
+		w.WriteHeader(http.StatusBadGateway)
+		_ = json.NewEncoder(w).Encode(shared.OperationResult{OK: false, Error: "empty response from agent"})
+		return
+	}
+
+	ok = resp.StatusCode >= 200 && resp.StatusCode < 300
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = w.Write(body)
+}
+
+func handleToolUninstall(w http.ResponseWriter, r *http.Request, audit *auditLog, toolID string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	action := "tool.uninstall." + toolID
+	ok := false
+	defer func() {
+		audit.recordAudit(action, ok)
+	}()
+
+	if _, err := tools.Find(toolID); err != nil {
+		http.Error(w, "tool not found", http.StatusNotFound)
+		return
+	}
+
+	agentURL := buildAgentURL("/tools/" + toolID + "/uninstall")
+	client := &http.Client{Timeout: 65 * time.Second}
+	resp, err := client.Post(agentURL, "application/json", nil)
+	if err != nil {
+		w.WriteHeader(http.StatusBadGateway)
+		_ = json.NewEncoder(w).Encode(shared.OperationResult{OK: false, Error: "failed to reach agent: " + err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		w.WriteHeader(http.StatusBadGateway)
+		_ = json.NewEncoder(w).Encode(shared.OperationResult{OK: false, Error: "failed to read agent response: " + err.Error()})
+		return
+	}
+
+	if len(body) == 0 {
+		w.WriteHeader(http.StatusBadGateway)
+		_ = json.NewEncoder(w).Encode(shared.OperationResult{OK: false, Error: "empty response from agent"})
+		return
+	}
+
+	ok = resp.StatusCode >= 200 && resp.StatusCode < 300
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
 	_, _ = w.Write(body)
 }
 
@@ -651,11 +735,25 @@ func main() {
 
 	mux.HandleFunc("/tools/", func(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/tools/"), "/")
-		if len(parts) != 2 || parts[1] != "bundle" {
-			if len(parts) == 2 && parts[1] == "install" {
-				handleToolInstall(w, r, audit)
-				return
-			}
+		if len(parts) != 2 {
+			http.NotFound(w, r)
+			return
+		}
+
+		toolID := parts[0]
+		action := parts[1]
+		switch action {
+		case "install":
+			handleToolInstall(w, r, audit, toolID)
+			return
+		case "status":
+			handleToolStatus(w, r, audit, toolID)
+			return
+		case "uninstall":
+			handleToolUninstall(w, r, audit, toolID)
+			return
+		case "bundle":
+		default:
 			http.NotFound(w, r)
 			return
 		}
@@ -665,11 +763,10 @@ func main() {
 			return
 		}
 
-		toolID := parts[0]
-		action := "tool.download." + toolID
+		actionName := "tool.download." + toolID
 		ok := false
 		defer func() {
-			audit.recordAudit(action, ok)
+			audit.recordAudit(actionName, ok)
 		}()
 
 		tool, err := tools.Find(toolID)

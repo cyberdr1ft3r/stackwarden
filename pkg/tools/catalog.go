@@ -17,6 +17,19 @@ type Tool struct {
 	Tags         []string    `json:"tags"`
 	InstallKind  InstallKind `json:"install_kind"`
 	ServicePorts []int       `json:"service_ports,omitempty"`
+	Status       StatusSpec  `json:"status,omitempty"`
+	Uninstall    Uninstall   `json:"uninstall,omitempty"`
+}
+
+type StatusSpec struct {
+	Binary       string   `json:"binary,omitempty"`
+	CheckCmd     []string `json:"check_cmd,omitempty"`
+	VersionCmd   []string `json:"version_cmd,omitempty"`
+	VersionRegex string   `json:"version_regex,omitempty"`
+}
+
+type Uninstall struct {
+	UninstallCmds [][]string `json:"uninstall_cmds,omitempty"`
 }
 
 var Catalog = []Tool{
@@ -34,6 +47,16 @@ var Catalog = []Tool{
 		Description: "Installer script and starter config for DDEV.",
 		Tags:        []string{"php", "web", "local-dev"},
 		InstallKind: InstallKindLinuxCLI,
+		Status: StatusSpec{
+			Binary:       "ddev",
+			VersionCmd:   []string{"ddev", "version"},
+			VersionRegex: `v?(\d+\.\d+\.\d+)`,
+		},
+		Uninstall: Uninstall{
+			UninstallCmds: [][]string{
+				{"apt-get", "remove", "-y", "ddev", "mkcert"},
+			},
+		},
 	},
 }
 

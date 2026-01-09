@@ -42,7 +42,7 @@ func main() {
 		_ = json.NewEncoder(w).Encode(resp)
 	})
 
-	mux.HandleFunc("/tools/", installToolHandler)
+	mux.HandleFunc("/tools/", toolActionHandler)
 
 	addr := getenv("AGENT_BIND", ":9091")
 	log.Printf("agent listening on %s", addr)
