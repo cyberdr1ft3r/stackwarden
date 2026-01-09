@@ -180,6 +180,8 @@
         <li><a href="/audit"><code>GET /audit</code></a></li>
         <li><a href="/tools"><code>GET /tools</code></a></li>
         <li><code>POST /tools/&lt;id&gt;/install</code></li>
+        <li><code>GET /tools/&lt;id&gt;/status</code></li>
+        <li><code>POST /tools/&lt;id&gt;/uninstall</code></li>
         <li><a href="/tools/portainer/bundle"><code>GET /tools/&lt;id&gt;/bundle</code></a></li>
       </ul>
     </div>
@@ -289,14 +291,19 @@
           .map((tool) => {
             const tags = (tool.tags || []).map((t) => `<span class="badge">${escapeHtml(t)}</span>`).join(" ");
             const installState = state.toolInstalls[tool.id] || {};
+            const uninstallState = state.toolUninstalls[tool.id] || {};
+            const statusState = state.toolStatuses[tool.id] || {};
             const buttonLabel = installState.loading ? "Installing..." : "Install on server";
-            const buttonDisabled = installState.loading ? "disabled" : "";
+            const buttonDisabled = installState.loading || uninstallState.loading ? "disabled" : "";
             const installKind = tool.install_kind || "bundle";
             const servicePorts = Array.isArray(tool.service_ports) && tool.service_ports.length ? tool.service_ports.join(", ") : "";
             let statusHTML = '<div class="muted">No install attempts yet.</div>';
+            let toolStatusHTML = '<div class="muted">Status not checked yet.</div>';
 
             if (installState.loading) {
               statusHTML = '<div class="muted">Installing on server...</div>';
+            } else if (uninstallState.loading) {
+              statusHTML = '<div class="muted">Uninstalling from server...</div>';
             } else if (installState.message) {
               const cls = installState.ok ? "status-ok" : "error";
               const pathNote = installState.path ? ` · Path: <code>${escapeHtml(installState.path)}</code>` : "";
@@ -304,6 +311,30 @@
                 ? `<details style="margin-top:6px;"><summary>Show output</summary><pre>${escapeHtml(installState.output)}</pre></details>`
                 : "";
               statusHTML = `<div class="${cls}">${escapeHtml(installState.message)}${pathNote}</div>${outputBlock}`;
+            } else if (uninstallState.message) {
+              const cls = uninstallState.ok ? "status-ok" : "error";
+              const warningNote = uninstallState.warnings?.length ? `<div class="muted">${escapeHtml(uninstallState.warnings.join("; "))}</div>` : "";
+              const outputBlock = uninstallState.output
+                ? `<details style="margin-top:6px;"><summary>Show output</summary><pre>${escapeHtml(uninstallState.output)}</pre></details>`
+                : "";
+              statusHTML = `<div class="${cls}">${escapeHtml(uninstallState.message)}</div>${warningNote}${outputBlock}`;
+            }
+
+            if (statusState.loading) {
+              toolStatusHTML = '<div class="muted">Checking status...</div>';
+            } else if (statusState.error) {
+              toolStatusHTML = `<div class="error">${escapeHtml(statusState.error)}</div>`;
+            } else if (statusState.data) {
+              const statusData = statusState.data;
+              const staged = statusData.staged ? "Yes" : "No";
+              const installed = statusData.installed ? "Yes" : "No";
+              const running = statusData.running ? "Yes" : "No";
+              const version = statusData.version ? escapeHtml(statusData.version) : "n/a";
+              const checkedAt = statusData.checked_at ? ` · Checked: ${formatLocalTime(statusData.checked_at)}` : "";
+              const errorNote = Array.isArray(statusData.errors) && statusData.errors.length ? `<div class="muted">Notes: ${escapeHtml(statusData.errors.join("; "))}</div>` : "";
+              const versionNote = installKind === "linux_cli" ? ` · Version: ${version}` : "";
+              const runningNote = installKind === "compose" ? ` · Running: ${running}` : "";
+              toolStatusHTML = `<div class="muted">Staged: ${staged} · Installed: ${installed}${runningNote}${versionNote}${checkedAt}</div>${errorNote}`;
             }
 
             return `<div class="card" style="margin:12px 0;">
@@ -314,10 +345,13 @@
                   <div class="muted" style="margin: 6px 0;">Install kind: <code>${escapeHtml(installKind)}</code>${servicePorts ? ` • Ports: ${escapeHtml(servicePorts)}` : ""}</div>
                   <div style="display:flex; gap:6px; flex-wrap: wrap;">${tags}</div>
                   <div style="margin-top:8px;">${statusHTML}</div>
+                  <div style="margin-top:8px;">${toolStatusHTML}</div>
                 </div>
                 <div>
                   <div style="display:flex; flex-direction: column; gap: 8px; align-items:flex-end;">
                     <button data-install="${tool.id}" onclick="installTool('${tool.id}')" ${buttonDisabled}>${buttonLabel}</button>
+                    <button onclick="refreshToolStatus('${tool.id}')" ${statusState.loading ? "disabled" : ""}>Check status</button>
+                    <button onclick="uninstallTool('${tool.id}')" ${uninstallState.loading || installState.loading ? "disabled" : ""}>Uninstall</button>
                     <a class="muted" href="/tools/${tool.id}/bundle" style="font-size:13px; text-align:right;">Download to my PC</a>
                   </div>
                 </div>
@@ -384,6 +418,8 @@
         tools: [],
         toolsLoaded: false,
         toolInstalls: {},
+        toolUninstalls: {},
+        toolStatuses: {},
         metrics: null,
         metricsUpdated: "",
         metricsLoading: false,
@@ -446,6 +482,26 @@
         const output = data && data.output ? data.output : "";
         const path = data && data.path ? data.path : "";
         return { ok: !!ok, message, output, path };
+      }
+
+      function normalizeUninstallResponse(response, data) {
+        const ok = data && typeof data.uninstalled === "boolean" ? data.uninstalled : response?.ok;
+        const message =
+          (data && (data.message || data.error)) ||
+          (response && !response.ok ? `Request failed (${response.status})` : "Uninstall complete");
+        const output = data && data.output ? data.output : "";
+        const warnings = Array.isArray(data?.warnings) ? data.warnings : [];
+        return { ok: !!ok, message, output, warnings };
+      }
+
+      function normalizeToolStatusResponse(response, data) {
+        if (!response?.ok) {
+          return { ok: false, error: `Request failed (${response?.status || "unknown"})` };
+        }
+        if (!data || typeof data !== "object") {
+          return { ok: false, error: "unexpected response format" };
+        }
+        return { ok: true, data };
       }
 
       async function refreshStatus() {
@@ -585,8 +641,53 @@
           }
           const normalized = normalizeInstallResponse(response, data || {});
           state.toolInstalls[toolId] = { ...normalized, loading: false };
+          if (normalized.ok) {
+            await refreshToolStatus(toolId, { silent: true });
+          }
         } catch (e) {
           state.toolInstalls[toolId] = { loading: false, ok: false, message: String(e) };
+        }
+        renderTools();
+      }
+
+      async function refreshToolStatus(toolId, options = {}) {
+        const silent = !!options.silent;
+        state.toolStatuses[toolId] = { loading: true };
+        if (!silent) {
+          renderTools();
+        }
+        try {
+          const response = await fetch(`/tools/${toolId}/status`);
+          const data = await response.json();
+          const normalized = normalizeToolStatusResponse(response, data);
+          if (!normalized.ok) {
+            state.toolStatuses[toolId] = { loading: false, error: normalized.error };
+          } else {
+            state.toolStatuses[toolId] = { loading: false, data: normalized.data };
+          }
+        } catch (e) {
+          state.toolStatuses[toolId] = { loading: false, error: String(e) };
+        }
+        renderTools();
+      }
+
+      async function uninstallTool(toolId) {
+        if (!confirm("Uninstall this tool from the server?")) return;
+        state.toolUninstalls[toolId] = { loading: true };
+        renderTools();
+        try {
+          const response = await fetch(`/tools/${toolId}/uninstall`, { method: "POST" });
+          let data = null;
+          try {
+            data = await response.json();
+          } catch (_) {
+            data = null;
+          }
+          const normalized = normalizeUninstallResponse(response, data || {});
+          state.toolUninstalls[toolId] = { ...normalized, loading: false };
+          await refreshToolStatus(toolId, { silent: true });
+        } catch (e) {
+          state.toolUninstalls[toolId] = { loading: false, ok: false, message: String(e) };
         }
         renderTools();
       }

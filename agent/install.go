@@ -19,10 +19,11 @@ import (
 )
 
 const (
-	toolsBaseDir          = "/var/lib/stackwarden/tools"
 	installCommandTimeout = 60 * time.Second
 	maxCommandOutputBytes = 16000
 )
+
+var toolsBaseDir = "/var/lib/stackwarden/tools"
 
 type installResult struct {
 	OK      bool   `json:"ok"`
@@ -31,19 +32,11 @@ type installResult struct {
 	Path    string `json:"path,omitempty"`
 }
 
-func installToolHandler(w http.ResponseWriter, r *http.Request) {
+func handleToolInstall(w http.ResponseWriter, r *http.Request, toolID string) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-
-	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/tools/"), "/")
-	if len(parts) != 2 || parts[1] != "install" {
-		http.NotFound(w, r)
-		return
-	}
-
-	toolID := parts[0]
 	tool, err := tools.Find(toolID)
 	if err != nil {
 		http.Error(w, "tool not found", http.StatusNotFound)
