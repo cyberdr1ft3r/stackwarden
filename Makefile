@@ -5,23 +5,10 @@ ROOT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
 AGENT_BIND ?= :9091
 PORT ?=
-API_PORT ?=
 API_BIND ?= :8080
-AGENT_URL ?=
 AGENT_BASE ?= http://127.0.0.1:9091
 
-ifneq ($(strip $(PORT)),)
-API_BIND := :$(PORT)
-endif
-ifneq ($(strip $(API_PORT)),)
-API_BIND := :$(API_PORT)
-endif
-ifneq ($(strip $(AGENT_URL)),)
-AGENT_BASE :=
-endif
-
 API_MAIN_DIR := $(shell cd $(ROOT_DIR) && $(GO) list -f '{{if eq .Name "main"}}{{.ImportPath}} {{.Dir}}{{end}}' ./... | awk '$$1 ~ /\/api(\/|$$)/ {print $$2; exit}')
-API_PORT_EFFECTIVE := $(if $(strip $(PORT)),$(PORT),$(if $(strip $(API_PORT)),$(API_PORT),8080))
 
 VERSION ?= dev
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "")
@@ -42,9 +29,11 @@ run-agent:
 
 run-api:
 	@if [ -z "$(API_MAIN_DIR)" ]; then echo "Unable to locate API main package"; exit 1; fi
-	@echo "Starting API on port $(API_PORT_EFFECTIVE)"
-	@echo "Running: API_BIND=$(API_BIND) AGENT_BASE=$(AGENT_BASE) AGENT_URL=$(AGENT_URL) $(GO) run $(API_MAIN_DIR)"
-	@cd $(ROOT_DIR) && API_BIND=$(API_BIND) AGENT_BASE=$(AGENT_BASE) AGENT_URL=$(AGENT_URL) $(GO) run $(API_MAIN_DIR)
+	@API_BIND_OVERRIDE="$(API_BIND)"; \
+	if [ -n "$(PORT)" ]; then API_BIND_OVERRIDE=":$(PORT)"; fi; \
+	echo "Starting API on $$API_BIND_OVERRIDE"; \
+	echo "Running: API_BIND=$$API_BIND_OVERRIDE AGENT_BASE=$(AGENT_BASE) $(GO) run $(API_MAIN_DIR)"; \
+	cd $(ROOT_DIR) && API_BIND=$$API_BIND_OVERRIDE AGENT_BASE=$(AGENT_BASE) $(GO) run $(API_MAIN_DIR)
 
 test:
 	$(GO) test -C agent ./...
