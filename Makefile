@@ -4,7 +4,6 @@ BIN_DIR ?= bin
 ROOT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
 AGENT_BIND ?= :9091
-PORT ?= 8080
 API_BIND ?= :8080
 AGENT_BASE ?= http://127.0.0.1:9091
 
@@ -25,14 +24,21 @@ endif
 
 .PHONY: run-agent run-api test build
 
+PORT_ARG :=
+ifneq ($(origin PORT), undefined)
+ifneq ($(strip $(PORT)),)
+PORT_ARG := --port $(PORT)
+endif
+endif
+
 run-agent:
 	AGENT_BIND=$(AGENT_BIND) $(GO) run ./agent
 
 run-api:
 	@if [ -z "$(API_MAIN_DIR)" ]; then echo "Unable to locate API main package"; exit 1; fi
-	@echo "Starting API on port $(PORT)"
-	@echo "Running: AGENT_BASE=$(AGENT_BASE) $(GO) run $(API_MAIN_TARGET) --port $(PORT)"
-	@cd $(ROOT_DIR) && AGENT_BASE=$(AGENT_BASE) $(GO) run $(API_MAIN_TARGET) --port $(PORT)
+	@echo "Starting API with API_BIND=$${API_BIND:-:8080} $(PORT_ARG)"
+	@echo "Running: AGENT_BASE=$(AGENT_BASE) API_BIND=$(API_BIND) $(GO) run $(API_MAIN_TARGET) $(PORT_ARG)"
+	@cd $(ROOT_DIR) && AGENT_BASE=$(AGENT_BASE) API_BIND=$(API_BIND) $(GO) run $(API_MAIN_TARGET) $(PORT_ARG)
 
 test:
 	$(GO) test -C agent ./...

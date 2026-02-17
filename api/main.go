@@ -845,28 +845,36 @@ func resolveUIDir() string {
 }
 
 func resolveAPIBind(port int, portFlagProvided bool) (string, error) {
+	bindFromEnv := os.Getenv("API_BIND")
+
 	if portFlagProvided {
 		if port < 1 || port > 65535 {
 			return "", fmt.Errorf("invalid port: %d", port)
 		}
-		return fmt.Sprintf(":%d", port), nil
+
+		if bindFromEnv == "" {
+			return fmt.Sprintf(":%d", port), nil
+		}
+
+		host, _, err := splitBindHostPort(bindFromEnv)
+		if err != nil {
+			return "", err
+		}
+
+		return net.JoinHostPort(host, strconv.Itoa(port)), nil
 	}
 
-	if bind := os.Getenv("API_BIND"); bind != "" {
-		return validateBind(bind)
+	if bindFromEnv != "" {
+		return validateBind(bindFromEnv)
 	}
 
 	return ":8080", nil
 }
 
 func validateBind(bind string) (string, error) {
-	if !strings.Contains(bind, ":") {
-		return "", fmt.Errorf("invalid bind address: %q", bind)
-	}
-
-	_, portStr, err := net.SplitHostPort(bind)
+	_, portStr, err := splitBindHostPort(bind)
 	if err != nil {
-		return "", fmt.Errorf("invalid bind address: %q", bind)
+		return "", err
 	}
 
 	port, err := strconv.Atoi(portStr)
@@ -875,6 +883,19 @@ func validateBind(bind string) (string, error) {
 	}
 
 	return bind, nil
+}
+
+func splitBindHostPort(bind string) (string, string, error) {
+	if !strings.Contains(bind, ":") {
+		return "", "", fmt.Errorf("invalid bind address: %q", bind)
+	}
+
+	host, portStr, err := net.SplitHostPort(bind)
+	if err != nil {
+		return "", "", fmt.Errorf("invalid bind address: %q", bind)
+	}
+
+	return host, portStr, nil
 }
 
 func portFlagProvided(args []string) bool {
