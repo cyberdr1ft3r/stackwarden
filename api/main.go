@@ -878,7 +878,8 @@ func validateBind(bind string) (string, error) {
 	}
 
 	port, err := strconv.Atoi(portStr)
-	if err != nil || port < 1 || port > 65535 {
+	// Allow port 0 for API_BIND so the OS can choose an ephemeral free port.
+	if err != nil || port < 0 || port > 65535 {
 		return "", fmt.Errorf("invalid bind port: %q", bind)
 	}
 
