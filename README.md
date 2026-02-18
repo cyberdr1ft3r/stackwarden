@@ -15,6 +15,10 @@ make run-api
 ```
 3) Open the UI: http://127.0.0.1:8080/
 
+### Platform notes
+- Linux/macOS: use `make run-api` (requires only Go + Make).
+- Windows (PowerShell, no make required): use `go run ./api` (and `go run ./agent`).
+
 ### Remote server
 Open http://<server-ip>:8080/ and ensure your firewall / security group allows inbound TCP 8080.
 

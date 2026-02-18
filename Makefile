@@ -7,8 +7,9 @@ AGENT_BIND ?= :9091
 API_BIND ?= :8080
 AGENT_BASE ?= http://127.0.0.1:9091
 
-API_MAIN_DIR := $(shell cd $(ROOT_DIR) && rg -l --no-messages '^package main$$' -g '*.go' | rg 'api/' | sed -n '1{s|/[^/]*$$||;p;}')
-API_MAIN_TARGET := ./$(API_MAIN_DIR)
+# Keep Linux runtime requirements minimal (Go + Make only):
+# avoid rg-based discovery; Windows users can run `go run ./api` directly.
+API_MAIN_TARGET ?= ./api
 
 VERSION ?= dev
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "")
@@ -35,7 +36,6 @@ run-agent:
 	AGENT_BIND=$(AGENT_BIND) $(GO) run ./agent
 
 run-api:
-	@if [ -z "$(API_MAIN_DIR)" ]; then echo "Unable to locate API main package"; exit 1; fi
 	@echo "Starting API with API_BIND=$${API_BIND:-:8080} $(PORT_ARG)"
 	@echo "Running: AGENT_BASE=$(AGENT_BASE) API_BIND=$(API_BIND) $(GO) run $(API_MAIN_TARGET) $(PORT_ARG)"
 	@cd $(ROOT_DIR) && AGENT_BASE=$(AGENT_BASE) API_BIND=$(API_BIND) $(GO) run $(API_MAIN_TARGET) $(PORT_ARG)
