@@ -819,6 +819,7 @@ func main() {
 
 	mux.Handle("/v1/read/", http.StripPrefix("/v1/read", readMux))
 	mux.Handle("/v1/write/", writeAuthMiddleware(cfg, http.StripPrefix("/v1/write", writeMux)))
+	registerLegacyReadRoutes(mux, readMux)
 
 	// Serve UI (static)
 	uiDir := resolveUIDir()
@@ -929,10 +930,27 @@ func validateBind(bind string) (string, error) {
 	return bind, nil
 }
 
+func registerLegacyReadRoutes(mux *http.ServeMux, readMux *http.ServeMux) {
+	legacyReadPaths := []string{
+		"/health",
+		"/version",
+		"/agent-health",
+		"/tools",
+		"/tools/",
+		"/ports",
+		"/audit",
+		"/port-events",
+	}
+
+	for _, legacyPath := range legacyReadPaths {
+		mux.Handle(legacyPath, readMux)
+	}
+}
+
 func isLoopbackHost(host string) bool {
 	host = strings.TrimSpace(host)
 	if host == "" {
-		return false
+		return true
 	}
 	if strings.EqualFold(host, "localhost") {
 		return true

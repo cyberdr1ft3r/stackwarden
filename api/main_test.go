@@ -7,6 +7,19 @@ import (
 	"testing"
 )
 
+func TestResolveAPIBind_EmptyHostIsTreatedAsLoopback(t *testing.T) {
+	t.Setenv("API_BIND", ":8080")
+	t.Setenv("ALLOW_NONLOCAL_BIND", "")
+
+	bind, err := resolveAPIBind(6000, false)
+	if err != nil {
+		t.Fatalf("resolveAPIBind returned error: %v", err)
+	}
+	if bind != ":8080" {
+		t.Fatalf("expected bind :8080, got %q", bind)
+	}
+}
+
 func TestResolveAPIBind_PortFlagPreservesHostFromEnv(t *testing.T) {
 	t.Setenv("API_BIND", "127.0.0.1:8080")
 
@@ -132,5 +145,32 @@ func TestWriteAuthMiddleware_AllowsCorrectBearerToken(t *testing.T) {
 
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", rr.Code)
+	}
+}
+
+func TestRegisterLegacyReadRoutes_CompatPathsReachReadMux(t *testing.T) {
+	readMux := http.NewServeMux()
+	readMux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	readMux.HandleFunc("/port-events", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+	})
+
+	mux := http.NewServeMux()
+	registerLegacyReadRoutes(mux, readMux)
+
+	versionReq := httptest.NewRequest(http.MethodGet, "/version", nil)
+	versionRR := httptest.NewRecorder()
+	mux.ServeHTTP(versionRR, versionReq)
+	if versionRR.Code != http.StatusNoContent {
+		t.Fatalf("expected /version to be routed to read mux, got %d", versionRR.Code)
+	}
+
+	portEventsReq := httptest.NewRequest(http.MethodGet, "/port-events", nil)
+	portEventsRR := httptest.NewRecorder()
+	mux.ServeHTTP(portEventsRR, portEventsReq)
+	if portEventsRR.Code != http.StatusAccepted {
+		t.Fatalf("expected /port-events to be routed to read mux, got %d", portEventsRR.Code)
 	}
 }
