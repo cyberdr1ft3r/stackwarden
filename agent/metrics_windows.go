@@ -73,7 +73,7 @@ type windowsMem struct {
 
 func readMemUsageWindows(ctx context.Context) (windowsMem, error) {
 	cmd := `(Get-CimInstance Win32_OperatingSystem | Select-Object -Property TotalVisibleMemorySize,FreePhysicalMemory | ConvertTo-Json -Compress)`
-	out, err := runCommand(ctx, "powershell", "-Command", cmd)
+	out, err := runCommandWindows(ctx, "powershell", "-Command", cmd)
 	if err != nil {
 		return windowsMem{}, err
 	}
@@ -113,7 +113,7 @@ func readMemUsageWindows(ctx context.Context) (windowsMem, error) {
 
 func readDiskUsageWindows(ctx context.Context) ([]DiskUsage, error) {
 	cmd := `(Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" | Select-Object DeviceID,Size,FreeSpace | ConvertTo-Json -Compress)`
-	out, err := runCommand(ctx, "powershell", "-Command", cmd)
+	out, err := runCommandWindows(ctx, "powershell", "-Command", cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +176,7 @@ func readDiskUsageWindows(ctx context.Context) ([]DiskUsage, error) {
 }
 
 func readUptimeWindows(ctx context.Context) (float64, error) {
-	out, err := runCommand(ctx, "wmic", "os", "get", "lastbootuptime", "/value")
+	out, err := runCommandWindows(ctx, "wmic", "os", "get", "lastbootuptime", "/value")
 	if err != nil {
 		return 0, err
 	}
@@ -203,14 +203,14 @@ func readUptimeWindows(ctx context.Context) (float64, error) {
 	return 0, errors.New("boot time not found")
 }
 
-func runCommand(ctx context.Context, name string, args ...string) (string, error) {
+func runCommandWindows(ctx context.Context, name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	output, err := cmd.CombinedOutput()
 	return string(output), err
 }
 
 func readCPUUsageWithTypeperf(ctx context.Context) (float64, error) {
-	out, err := runCommand(ctx, "typeperf", `\Processor(_Total)\% Processor Time`, "-sc", "1")
+	out, err := runCommandWindows(ctx, "typeperf", `\Processor(_Total)\% Processor Time`, "-sc", "1")
 	if err != nil {
 		return 0, err
 	}
@@ -220,7 +220,7 @@ func readCPUUsageWithTypeperf(ctx context.Context) (float64, error) {
 
 func readCPUUsageWithPowershell(ctx context.Context) (float64, error) {
 	cmd := `Get-Counter '\Processor(_Total)\% Processor Time' -SampleInterval 1 -MaxSamples 1 | Select -ExpandProperty CounterSamples | Select -First 1 | Select -ExpandProperty CookedValue`
-	out, err := runCommand(ctx, "powershell", "-Command", cmd)
+	out, err := runCommandWindows(ctx, "powershell", "-Command", cmd)
 	if err != nil {
 		return 0, err
 	}

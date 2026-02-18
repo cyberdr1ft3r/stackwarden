@@ -1,10 +1,15 @@
 SHELL := /bin/bash
 GO ?= go
 BIN_DIR ?= bin
+ROOT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
 AGENT_BIND ?= :9091
 API_BIND ?= :8080
 AGENT_BASE ?= http://127.0.0.1:9091
+
+# Keep Linux runtime requirements minimal (Go + Make only):
+# avoid rg-based discovery; Windows users can run `go run ./api` directly.
+API_MAIN_TARGET ?= ./api
 
 VERSION ?= dev
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "")
@@ -20,11 +25,20 @@ endif
 
 .PHONY: run-agent run-api test build
 
+PORT_ARG :=
+ifneq ($(origin PORT), undefined)
+ifneq ($(strip $(PORT)),)
+PORT_ARG := --port $(PORT)
+endif
+endif
+
 run-agent:
 	AGENT_BIND=$(AGENT_BIND) $(GO) run ./agent
 
 run-api:
-	API_BIND=$(API_BIND) AGENT_BASE=$(AGENT_BASE) $(GO) run ./api
+	@echo "Starting API with API_BIND=$${API_BIND:-:8080} $(PORT_ARG)"
+	@echo "Running: AGENT_BASE=$(AGENT_BASE) API_BIND=$(API_BIND) $(GO) run $(API_MAIN_TARGET) $(PORT_ARG)"
+	@cd $(ROOT_DIR) && AGENT_BASE=$(AGENT_BASE) API_BIND=$(API_BIND) $(GO) run $(API_MAIN_TARGET) $(PORT_ARG)
 
 test:
 	$(GO) test -C agent ./...
