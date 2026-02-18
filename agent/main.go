@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -44,9 +47,35 @@ func main() {
 
 	mux.HandleFunc("/tools/", toolActionHandler)
 
-	addr := getenv("AGENT_BIND", ":9091")
-	log.Printf("agent listening on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, mux))
+	socketPath := getenv("AGENT_SOCKET", "/run/stackwarden/agent.sock")
+	ln, err := listenUnixSocket(socketPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer ln.Close()
+
+	log.Printf("agent listening on unix socket %s", socketPath)
+	log.Fatal(http.Serve(ln, mux))
+}
+
+func listenUnixSocket(socketPath string) (net.Listener, error) {
+	if socketPath == "" {
+		return nil, errors.New("agent socket path cannot be empty")
+	}
+	dir := filepath.Dir(socketPath)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return nil, err
+	}
+	_ = os.Remove(socketPath)
+	ln, err := net.Listen("unix", socketPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.Chmod(socketPath, 0o660); err != nil {
+		_ = ln.Close()
+		return nil, err
+	}
+	return ln, nil
 }
 
 func getenv(key, def string) string {

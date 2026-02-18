@@ -116,7 +116,7 @@ func TestLinuxCLIStatusVersion(t *testing.T) {
 
 	runner := &fakeRunner{
 		responses: map[string]runResponse{
-			"sh -c command -v ddev": {
+			"which ddev": {
 				stdout: "/usr/bin/ddev\n",
 				code:   0,
 			},

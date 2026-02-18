@@ -204,9 +204,12 @@ func installDDEVWithAPT(ctx context.Context, toolDir string) installResult {
 		return installResult{OK: false, Message: "failed to install ddev gpg key", Output: strings.Join(outputs, "\n---\n"), Path: toolDir}
 	}
 
-	repoLine := `deb [signed-by=/etc/apt/keyrings/ddev.gpg] https://ddev.com/apt/ stable main`
-	repoCmd := fmt.Sprintf("echo \"%s\" > /etc/apt/sources.list.d/ddev.list", repoLine)
-	if err := run("sh", "-c", repoCmd); err != nil {
+	repoLine := "deb [signed-by=/etc/apt/keyrings/ddev.gpg] https://ddev.com/apt/ stable main\n"
+	repoSrc := filepath.Join(toolDir, "ddev.list")
+	if err := os.WriteFile(repoSrc, []byte(repoLine), 0o644); err != nil {
+		return installResult{OK: false, Message: "failed to stage ddev apt repository file", Output: err.Error(), Path: toolDir}
+	}
+	if err := run("install", "-m", "0644", repoSrc, "/etc/apt/sources.list.d/ddev.list"); err != nil {
 		return installResult{OK: false, Message: "failed to add ddev apt repository", Output: strings.Join(outputs, "\n---\n"), Path: toolDir}
 	}
 
@@ -339,10 +342,19 @@ func stageTemplateFiles(tool tools.Tool, destDir string) error {
 }
 
 func ensureToolDir(toolID string) (string, error) {
-	if strings.TrimSpace(toolID) == "" {
-		return "", errors.New("tool id is required")
+	if !isValidToolID(toolID) {
+		return "", errors.New("invalid tool id")
 	}
 	toolDir := filepath.Join(toolsBaseDir, toolID)
+	cleanBase := filepath.Clean(toolsBaseDir)
+	cleanTarget := filepath.Clean(toolDir)
+	rel, err := filepath.Rel(cleanBase, cleanTarget)
+	if err != nil {
+		return "", err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", errors.New("invalid tool path")
+	}
 	if err := os.MkdirAll(toolDir, 0o755); err != nil {
 		return toolDir, err
 	}

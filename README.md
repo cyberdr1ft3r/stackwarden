@@ -19,13 +19,22 @@ make run-api
 - Linux/macOS: use `make run-api` (requires only Go + Make).
 - Windows (PowerShell, no make required): use `go run ./api` (and `go run ./agent`).
 
-### Remote server
-Open http://<server-ip>:8080/ and ensure your firewall / security group allows inbound TCP 8080.
+### Remote server access (safe defaults)
+By default the API binds to loopback only (`127.0.0.1:8080`), so reach it via a tunnel/reverse proxy instead of opening TCP 8080 directly.
+
+SSH tunnel example:
+```bash
+ssh -L 8080:127.0.0.1:8080 user@server
+# then browse locally:
+# http://127.0.0.1:8080/
+```
 
 ## Configuration
-- `AGENT_BIND` (default `:9091`): agent listen address.
-- `API_BIND` (default `:8080`): API listen address (binds to all interfaces by default).
-- `AGENT_BASE` (default `http://127.0.0.1:9091`): base URL the API uses to reach the agent.
+- `API_BIND` (default `127.0.0.1:8080`): API listen address.
+- `ALLOW_NONLOCAL_BIND` (default unset): must be `1` to allow non-loopback API binds.
+- `AGENT_SOCKET` (default `/run/stackwarden/agent.sock`): Unix socket path used by API and agent.
+- `STACKWARDEN_WRITE_ENABLED` (default `false`): enables `/v1/write/*` endpoints.
+- `STACKWARDEN_TOKEN`: required Bearer token when write endpoints are enabled.
 
 Useful commands:
 - `make test` — run Go tests across modules
@@ -47,21 +56,28 @@ Useful commands:
 
 ## Manual API checks (optional)
 ```bash
-curl -s http://127.0.0.1:8080/health
-curl -s http://127.0.0.1:8080/agent/health
-curl -s http://127.0.0.1:8080/version
-curl -s http://127.0.0.1:8080/metrics
-curl -s http://127.0.0.1:8080/ports
-curl -s http://127.0.0.1:8080/audit
-curl -X POST -s http://127.0.0.1:8080/tools/portainer/install
+curl -s http://127.0.0.1:8080/v1/read/health
+curl -s http://127.0.0.1:8080/v1/read/agent/health
+curl -s http://127.0.0.1:8080/v1/read/version
+curl -s http://127.0.0.1:8080/v1/read/metrics
+curl -s http://127.0.0.1:8080/v1/read/ports
+curl -s http://127.0.0.1:8080/v1/read/audit
+curl -X POST -H "Authorization: Bearer $STACKWARDEN_TOKEN" -s http://127.0.0.1:8080/v1/write/tools/portainer/install
 ```
+
+## Security verification checklist
+- `ss -ltnp | rg ':8080'` shows API bound to `127.0.0.1:8080` (unless explicitly overridden with `ALLOW_NONLOCAL_BIND=1`).
+- `ss -ltnp | rg 9091` shows no TCP listener for the agent.
+- `curl -i -X POST http://127.0.0.1:8080/v1/write/tools/portainer/install` returns `403` + `{"error":"write_disabled"}` by default.
+- With `STACKWARDEN_WRITE_ENABLED=true`, same request without token returns `401` + `{"error":"unauthorized"}`.
+- With `STACKWARDEN_WRITE_ENABLED=true` and correct Bearer token, `/v1/write/*` works.
 
 ## Architecture
 ```
 [ Browser UI ]
       |
       v
-[ Go API ] ----> [ Go Agent ] ----> OS (ports, health, metrics)
+[ Go API ] ----(unix:///run/stackwarden/agent.sock)---> [ Go Agent ] ----> OS (ports, health, metrics)
 ```
 
 ## License

@@ -180,7 +180,7 @@ func linuxCLIStatus(ctx context.Context, tool tools.Tool, runner Runner, status 
 			}
 		}
 	} else if spec.Binary != "" {
-		cmd := []string{"sh", "-c", "command -v " + spec.Binary}
+		cmd := []string{"which", spec.Binary}
 		stdout, _, code, err := runner.Run(ctx, cmd, "")
 		if err == nil && code == 0 {
 			installed = true
