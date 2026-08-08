@@ -1,0 +1,92 @@
+# StackWarden Risk Register
+
+Last updated: 2026-08-08
+
+## R-001 - Privileged agent compromise
+
+Severity: Critical
+Status: Active
+
+The agent can perform host-level observations/actions. A remotely reachable or overly general agent interface could become a direct host-compromise path.
+
+Controls/direction:
+- Keep agent transport local/private.
+- Never expose arbitrary command execution.
+- Validate identifiers/paths.
+- Prefer structured allowlisted actions.
+- Restrict socket/service permissions.
+
+## R-002 - Public management exposure
+
+Severity: High
+Status: Active on current `main`; mitigation proposed by PR #18
+
+Current `main` documentation/configuration allows broad API binding. An Internet-reachable management API increases attack surface substantially.
+
+Direction:
+- Loopback/private by default.
+- Explicit override for non-local binds.
+- Use SSH tunnel/private network/secured reverse proxy for remote use.
+
+## R-003 - Unauthenticated or insufficiently gated writes
+
+Severity: Critical
+Status: Active on current `main`; mitigation proposed by PR #18
+
+Tool installation/uninstallation changes host state and may invoke privileged package/container operations. Write capabilities require explicit gating and authentication/authorization.
+
+## R-004 - Shell injection / unsafe execution composition
+
+Severity: Critical
+Status: Must remain continuously reviewed
+
+Any free-form shell composition influenced by API/user input can become command execution. Avoid `sh -c` patterns and pass validated argv directly wherever possible.
+
+## R-005 - Path traversal / managed-directory escape
+
+Severity: High
+Status: Must remain continuously reviewed
+
+Tool IDs or future resource identifiers must not escape `/var/lib/stackwarden/...` or other managed roots. Validate allowed characters and verify resolved paths remain under expected bases.
+
+## R-006 - Volatile operational history
+
+Severity: Medium
+Status: Active
+
+Audit events and port-change snapshots are currently in memory. Restarting the API loses history, limiting forensic usefulness and durable drift analysis.
+
+Next step: make persistence an explicit architecture decision before implementation.
+
+## R-007 - Security model drift as features expand
+
+Severity: High
+Status: Active
+
+Adding convenient remediation/tool features can gradually turn StackWarden into a generic remote administration shell.
+
+Controls:
+- Route meaningful changes through issues/PRs.
+- Update decisions/threat model.
+- Require narrow action contracts and tests.
+
+## R-008 - Tool installer supply-chain/privilege risk
+
+Severity: High
+Status: Active
+
+Installing third-party tools may add repositories, fetch packages/images, and run privileged installers. Catalog entries need reviewable sources, bounded commands, clear platform assumptions, and safe failure handling.
+
+## R-009 - Incomplete long-term auth model
+
+Severity: High
+Status: Open
+
+PR #18 proposes a minimal Bearer token for enabled writes, but long-term identity, roles, session handling, token lifecycle, and multi-operator authorization are not yet decided.
+
+## R-010 - Deployment hardening not codified
+
+Severity: Medium
+Status: Open
+
+Systemd/service users, filesystem ownership, socket group ownership, upgrade/rollback, log retention, and reverse-proxy deployment are not yet fully codified as a reproducible production model.
