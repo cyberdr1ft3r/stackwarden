@@ -61,7 +61,11 @@ func collectToolStatus(ctx context.Context, tool tools.Tool, runner Runner) Tool
 		CheckedAt:   checkedAt,
 	}
 
-	toolDir := filepath.Join(toolsBaseDir, tool.ID)
+	toolDir, err := managedToolDir(tool.ID)
+	if err != nil {
+		status.Errors = append(status.Errors, err.Error())
+		return status
+	}
 	status.Staged = dirExists(toolDir)
 
 	switch tool.InstallKind {
@@ -86,7 +90,12 @@ func uninstallTool(ctx context.Context, tool tools.Tool, runner Runner) uninstal
 	var outputs []string
 	var warnings []string
 
-	toolDir := filepath.Join(toolsBaseDir, tool.ID)
+	toolDir, err := managedToolDir(tool.ID)
+	if err != nil {
+		result.Uninstalled = false
+		result.Warnings = append(result.Warnings, err.Error())
+		return result
+	}
 
 	switch tool.InstallKind {
 	case tools.InstallKindCompose:

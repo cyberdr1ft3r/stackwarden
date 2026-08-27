@@ -154,3 +154,48 @@ func TestBundleOnlyStatus(t *testing.T) {
 		t.Fatalf("expected staged/installed true")
 	}
 }
+
+func TestEnsureToolDirRejectsMalformedToolIDs(t *testing.T) {
+	restoreDir := withTempToolsDir(t)
+	defer restoreDir()
+
+	for _, toolID := range []string{"", "../portainer", "portainer/../ddev", "/tmp/portainer", "Portainer", "portainer.d"} {
+		if _, err := ensureToolDir(toolID); err == nil {
+			t.Fatalf("expected %q to be rejected", toolID)
+		}
+	}
+}
+
+func TestEnsureToolDirAcceptsValidToolID(t *testing.T) {
+	restoreDir := withTempToolsDir(t)
+	defer restoreDir()
+
+	dir, err := ensureToolDir("portainer")
+	if err != nil {
+		t.Fatalf("expected valid tool id to be accepted: %v", err)
+	}
+	if want := filepath.Join(toolsBaseDir, "portainer"); dir != want {
+		t.Fatalf("expected %q, got %q", want, dir)
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		t.Fatalf("expected tool directory to be created: %v", err)
+	}
+}
+
+func TestUninstallRejectsInvalidToolIDBeforeRemoveAll(t *testing.T) {
+	restoreDir := withTempToolsDir(t)
+	defer restoreDir()
+
+	sentinel := filepath.Join(toolsBaseDir, "sentinel")
+	if err := os.MkdirAll(sentinel, 0o755); err != nil {
+		t.Fatalf("failed to create sentinel: %v", err)
+	}
+
+	result := uninstallTool(context.Background(), tools.Tool{ID: "../sentinel", InstallKind: tools.InstallKindBundleOnly}, &fakeRunner{responses: map[string]runResponse{}})
+	if result.Uninstalled {
+		t.Fatalf("expected invalid uninstall to fail")
+	}
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Fatalf("sentinel directory should not be removed: %v", err)
+	}
+}

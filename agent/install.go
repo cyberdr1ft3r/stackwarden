@@ -342,6 +342,17 @@ func stageTemplateFiles(tool tools.Tool, destDir string) error {
 }
 
 func ensureToolDir(toolID string) (string, error) {
+	toolDir, err := managedToolDir(toolID)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(toolDir, 0o755); err != nil {
+		return toolDir, err
+	}
+	return toolDir, nil
+}
+
+func managedToolDir(toolID string) (string, error) {
 	if !isValidToolID(toolID) {
 		return "", errors.New("invalid tool id")
 	}
@@ -354,9 +365,6 @@ func ensureToolDir(toolID string) (string, error) {
 	}
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", errors.New("invalid tool path")
-	}
-	if err := os.MkdirAll(toolDir, 0o755); err != nil {
-		return toolDir, err
 	}
 	return toolDir, nil
 }

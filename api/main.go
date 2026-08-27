@@ -927,6 +927,10 @@ func validateBind(bind string) (string, error) {
 		return "", fmt.Errorf("refusing non-local API bind %q; set ALLOW_NONLOCAL_BIND=1 to override", bind)
 	}
 
+	if host == "" {
+		return net.JoinHostPort("127.0.0.1", portStr), nil
+	}
+
 	return bind, nil
 }
 
@@ -934,7 +938,7 @@ func registerLegacyReadRoutes(mux *http.ServeMux, readMux *http.ServeMux) {
 	legacyReadPaths := []string{
 		"/health",
 		"/version",
-		"/agent-health",
+		"/agent/health",
 		"/tools",
 		"/tools/",
 		"/ports",

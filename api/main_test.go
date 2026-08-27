@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -15,8 +16,21 @@ func TestResolveAPIBind_EmptyHostIsTreatedAsLoopback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveAPIBind returned error: %v", err)
 	}
-	if bind != ":8080" {
-		t.Fatalf("expected bind :8080, got %q", bind)
+	if bind != "127.0.0.1:8080" {
+		t.Fatalf("expected bind 127.0.0.1:8080, got %q", bind)
+	}
+}
+
+func TestResolveAPIBind_PortFlagNormalizesEmptyHostFromEnv(t *testing.T) {
+	t.Setenv("API_BIND", ":8080")
+	t.Setenv("ALLOW_NONLOCAL_BIND", "")
+
+	bind, err := resolveAPIBind(6000, true)
+	if err != nil {
+		t.Fatalf("resolveAPIBind returned error: %v", err)
+	}
+	if bind != "127.0.0.1:6000" {
+		t.Fatalf("expected bind 127.0.0.1:6000, got %q", bind)
 	}
 }
 
@@ -133,6 +147,21 @@ func TestWriteAuthMiddleware_RequiresBearerToken(t *testing.T) {
 	}
 }
 
+func TestWriteAuthMiddleware_RejectsInvalidBearerToken(t *testing.T) {
+	h := writeAuthMiddleware(securityConfig{WriteEnabled: true, Token: "secret"}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/write/tools/portainer/install", nil)
+	req.Header.Set("Authorization", "Bearer wrong")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rr.Code)
+	}
+}
+
 func TestWriteAuthMiddleware_AllowsCorrectBearerToken(t *testing.T) {
 	h := writeAuthMiddleware(securityConfig{WriteEnabled: true, Token: "secret"}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
@@ -172,5 +201,29 @@ func TestRegisterLegacyReadRoutes_CompatPathsReachReadMux(t *testing.T) {
 	mux.ServeHTTP(portEventsRR, portEventsReq)
 	if portEventsRR.Code != http.StatusAccepted {
 		t.Fatalf("expected /port-events to be routed to read mux, got %d", portEventsRR.Code)
+	}
+}
+
+func TestRegisterLegacyReadRoutes_DoesNotExposeLegacyWriteActions(t *testing.T) {
+	readMux := http.NewServeMux()
+	readMux.HandleFunc("/tools/", func(w http.ResponseWriter, r *http.Request) {
+		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/tools/"), "/")
+		if len(parts) == 2 && parts[1] == "status" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	mux := http.NewServeMux()
+	registerLegacyReadRoutes(mux, readMux)
+
+	for _, path := range []string{"/tools/portainer/install", "/tools/portainer/uninstall"} {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		rr := httptest.NewRecorder()
+		mux.ServeHTTP(rr, req)
+		if rr.Code != http.StatusNotFound {
+			t.Fatalf("expected %s to return 404, got %d", path, rr.Code)
+		}
 	}
 }

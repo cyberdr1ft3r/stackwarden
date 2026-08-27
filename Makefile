@@ -3,9 +3,8 @@ GO ?= go
 BIN_DIR ?= bin
 ROOT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
-AGENT_BIND ?= :9091
-API_BIND ?= :8080
-AGENT_BASE ?= http://127.0.0.1:9091
+AGENT_SOCKET ?= /run/stackwarden/agent.sock
+API_BIND ?= 127.0.0.1:8080
 
 # Keep Linux runtime requirements minimal (Go + Make only):
 # avoid rg-based discovery; Windows users can run `go run ./api` directly.
@@ -33,12 +32,12 @@ endif
 endif
 
 run-agent:
-	AGENT_BIND=$(AGENT_BIND) $(GO) run ./agent
+	AGENT_SOCKET=$(AGENT_SOCKET) $(GO) run ./agent
 
 run-api:
-	@echo "Starting API with API_BIND=$${API_BIND:-:8080} $(PORT_ARG)"
-	@echo "Running: AGENT_BASE=$(AGENT_BASE) API_BIND=$(API_BIND) $(GO) run $(API_MAIN_TARGET) $(PORT_ARG)"
-	@cd $(ROOT_DIR) && AGENT_BASE=$(AGENT_BASE) API_BIND=$(API_BIND) $(GO) run $(API_MAIN_TARGET) $(PORT_ARG)
+	@echo "Starting API with API_BIND=$${API_BIND:-127.0.0.1:8080} $(PORT_ARG)"
+	@echo "Running: AGENT_SOCKET=$(AGENT_SOCKET) API_BIND=$(API_BIND) $(GO) run $(API_MAIN_TARGET) $(PORT_ARG)"
+	@cd $(ROOT_DIR) && AGENT_SOCKET=$(AGENT_SOCKET) API_BIND=$(API_BIND) $(GO) run $(API_MAIN_TARGET) $(PORT_ARG)
 
 test:
 	$(GO) test -C agent ./...

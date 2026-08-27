@@ -35,6 +35,7 @@ ssh -L 8080:127.0.0.1:8080 user@server
 - `AGENT_SOCKET` (default `/run/stackwarden/agent.sock`): Unix socket path used by API and agent.
 - `STACKWARDEN_WRITE_ENABLED` (default `false`): enables `/v1/write/*` endpoints.
 - `STACKWARDEN_TOKEN`: required Bearer token when write endpoints are enabled.
+- UI write flow: when writes are intentionally enabled, enter the configured token in the Tools page before Install/Uninstall. The browser keeps it in page memory only; it is not stored in local/session storage or sent with read requests.
 
 Useful commands:
 - `make test` — run Go tests across modules
@@ -62,6 +63,7 @@ curl -s http://127.0.0.1:8080/v1/read/version
 curl -s http://127.0.0.1:8080/v1/read/metrics
 curl -s http://127.0.0.1:8080/v1/read/ports
 curl -s http://127.0.0.1:8080/v1/read/audit
+curl -i -X POST http://127.0.0.1:8080/v1/write/tools/portainer/install
 curl -X POST -H "Authorization: Bearer $STACKWARDEN_TOKEN" -s http://127.0.0.1:8080/v1/write/tools/portainer/install
 ```
 
