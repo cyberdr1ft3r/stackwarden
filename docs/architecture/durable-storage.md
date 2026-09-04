@@ -1,8 +1,8 @@
 # D-012: Durable Storage Architecture
 
-Status: Accepted  
-Date: 2026-09-04
-Implementation: [Issue #23](https://github.com/cyberdr1ft3r/stackwarden/issues/23)
+- Status: Accepted
+- Date: 2026-09-04
+- Implementation: [Issue #23](https://github.com/cyberdr1ft3r/stackwarden/issues/23)
 
 ## Context
 
