@@ -567,7 +567,6 @@ func handleToolUninstall(w http.ResponseWriter, r *http.Request, audit *auditLog
 func main() {
 	mux := http.NewServeMux()
 	readMux := http.NewServeMux()
-	writeMux := http.NewServeMux()
 	audit := &auditLog{}
 	portEvents := &portEventLog{limit: 100}
 	portsSnapshot := &portSnapshot{}
@@ -795,30 +794,8 @@ func main() {
 		_, _ = w.Write(buf.Bytes())
 	})
 
-	writeMux.HandleFunc("/tools/", func(w http.ResponseWriter, r *http.Request) {
-		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/tools/"), "/")
-		if len(parts) != 2 {
-			http.NotFound(w, r)
-			return
-		}
-		toolID := parts[0]
-		if !isValidToolID(toolID) {
-			http.Error(w, "tool not found", http.StatusNotFound)
-			return
-		}
-		action := parts[1]
-		switch action {
-		case "install":
-			handleToolInstall(w, r, audit, agentClient, toolID)
-		case "uninstall":
-			handleToolUninstall(w, r, audit, agentClient, toolID)
-		default:
-			http.NotFound(w, r)
-		}
-	})
-
 	mux.Handle("/v1/read/", http.StripPrefix("/v1/read", readMux))
-	mux.Handle("/v1/write/", writeAuthMiddleware(cfg, http.StripPrefix("/v1/write", writeMux)))
+	registerWriteRoutes(mux, cfg, audit, agentClient)
 	registerLegacyReadRoutes(mux, readMux)
 
 	// Serve UI (static)
@@ -949,6 +926,33 @@ func registerLegacyReadRoutes(mux *http.ServeMux, readMux *http.ServeMux) {
 	for _, legacyPath := range legacyReadPaths {
 		mux.Handle(legacyPath, readMux)
 	}
+}
+
+func registerWriteRoutes(mux *http.ServeMux, cfg securityConfig, audit *auditLog, agentClient *http.Client) {
+	writeMux := http.NewServeMux()
+	writeMux.HandleFunc("/tools/", func(w http.ResponseWriter, r *http.Request) {
+		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/tools/"), "/")
+		if len(parts) != 2 {
+			http.NotFound(w, r)
+			return
+		}
+		toolID := parts[0]
+		if !isValidToolID(toolID) {
+			http.Error(w, "tool not found", http.StatusNotFound)
+			return
+		}
+		action := parts[1]
+		switch action {
+		case "install":
+			handleToolInstall(w, r, audit, agentClient, toolID)
+		case "uninstall":
+			handleToolUninstall(w, r, audit, agentClient, toolID)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+
+	mux.Handle("/v1/write/", writeAuthMiddleware(cfg, http.StripPrefix("/v1/write", writeMux)))
 }
 
 func isLoopbackHost(host string) bool {

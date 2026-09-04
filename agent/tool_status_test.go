@@ -182,6 +182,33 @@ func TestEnsureToolDirAcceptsValidToolID(t *testing.T) {
 	}
 }
 
+func TestEnsureToolDirRejectsSymlinkEscape(t *testing.T) {
+	restoreDir := withTempToolsDir(t)
+	defer restoreDir()
+
+	outside := t.TempDir()
+	toolDir := filepath.Join(toolsBaseDir, "portainer")
+	if err := os.Symlink(outside, toolDir); err != nil {
+		t.Fatalf("failed to create tool directory symlink: %v", err)
+	}
+
+	if _, err := ensureToolDir("portainer"); err == nil {
+		t.Fatal("expected symlinked tool directory to be rejected")
+	}
+
+	sentinel := filepath.Join(outside, "sentinel")
+	if err := os.WriteFile(sentinel, []byte("keep"), 0o600); err != nil {
+		t.Fatalf("failed to create outside sentinel: %v", err)
+	}
+	result := uninstallTool(context.Background(), tools.Tool{ID: "portainer", InstallKind: tools.InstallKindBundleOnly}, &fakeRunner{responses: map[string]runResponse{}})
+	if result.Uninstalled {
+		t.Fatal("expected uninstall through symlink to fail")
+	}
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Fatalf("outside sentinel must remain untouched: %v", err)
+	}
+}
+
 func TestUninstallRejectsInvalidToolIDBeforeRemoveAll(t *testing.T) {
 	restoreDir := withTempToolsDir(t)
 	defer restoreDir()

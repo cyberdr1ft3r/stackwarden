@@ -366,6 +366,13 @@ func managedToolDir(toolID string) (string, error) {
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", errors.New("invalid tool path")
 	}
+	if info, err := os.Lstat(toolDir); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", errors.New("managed tool directory cannot be a symlink")
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
 	return toolDir, nil
 }
 
