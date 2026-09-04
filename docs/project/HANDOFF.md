@@ -37,6 +37,7 @@ Do not begin implementation from this architecture branch and do not add persist
 - Every acceptance criterion in Issue #23 and the D-012 architecture is tested.
 - No Bearer token, credential, environment content, request body, PID, raw command output, or automatic host fingerprint is persisted.
 - Migration, rollback, concurrency, retention, indexed query, restart, backup/restore, corruption, permission, and path/symlink tests pass.
+- Database tests reject cross-host drift snapshot references, reject dual audit terminal outcomes, accept both valid terminal sequences, and preserve drift events/host IDs when snapshot pruning nulls references.
 - Linux behavior remains functional; Windows agent/API code compiles without execution.
 - All six mandatory CI checks pass.
 - Project memory describes persistence as current behavior only after the implementation PR merges.

@@ -205,6 +205,7 @@ Primary key: `(revision_id, tool_id)`. Status command output, paths, and errors 
 | --- | --- |
 | `id TEXT PRIMARY KEY`, `host_id TEXT NOT NULL` | Event and host identity |
 | `from_snapshot_id`, `to_snapshot_id TEXT NULL` | Set null when snapshot retention removes a referenced snapshot |
+| `event_key TEXT NOT NULL` | Immutable deterministic retry/deduplication key |
 | `kind TEXT NOT NULL` | Bounded event kind |
 | `resource_type TEXT NOT NULL`, `resource_key TEXT NOT NULL` | Listener/service/tool reference |
 | `details_json TEXT NOT NULL` | Versioned, validated structured details only |
@@ -229,20 +230,113 @@ Administrative mutations use two append-only events with the same request ID: `r
 | `outcome TEXT NOT NULL`, `error_code TEXT NULL` | Structured result; no raw error/output |
 | `occurred_at_ms INTEGER NOT NULL` | API event time |
 
-Constraint: `UNIQUE(request_id, phase)`. A state-changing action must not reach the agent if its `requested` audit event cannot be committed.
+`phase` has a `CHECK` constraint allowing only `requested`, `completed`, or `failed`.
 
-Read-only observations may append one `completed` or `failed` event without blocking the read when audit persistence is unavailable. State-changing actions use the strict request/outcome sequence. Audit rows are append-only until retention pruning.
+Two partial unique indexes enforce cardinality:
+
+```sql
+CREATE UNIQUE INDEX audit_events_one_request
+ON audit_events(request_id)
+WHERE phase = 'requested';
+
+CREATE UNIQUE INDEX audit_events_one_terminal
+ON audit_events(request_id)
+WHERE phase IN ('completed', 'failed');
+
+CREATE TRIGGER audit_events_terminal_requires_request
+BEFORE INSERT ON audit_events
+FOR EACH ROW
+WHEN
+  NEW.phase IN ('completed', 'failed')
+  AND NOT EXISTS (
+    SELECT 1
+    FROM audit_events AS requested
+    WHERE requested.request_id = NEW.request_id
+      AND requested.phase = 'requested'
+      AND requested.host_id IS NEW.host_id
+      AND requested.action = NEW.action
+      AND requested.target_type IS NEW.target_type
+      AND requested.target_id IS NEW.target_id
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'audit terminal event has no matching request');
+END;
+```
+
+A `BEFORE INSERT` trigger rejects a terminal event unless its matching `requested` row already exists with the same null-safe `host_id`, action, target type, and target ID. The terminal partial index then guarantees that `completed` and `failed` cannot both exist for one request. A request therefore has exactly one requested event and zero terminal events while in flight, or one terminal event after completion.
+
+A state-changing action must not reach the agent if its `requested` audit event cannot be committed. Read-only observations use the same request/terminal shape when persisted, but audit-storage failure does not block the read. Audit rows are append-only until retention prunes complete request groups atomically.
 
 ## Relationships and deletion behavior
 
 - `inventory_revisions.host_id` references `managed_hosts.id` with `ON DELETE RESTRICT`.
 - `host_snapshots.(revision_id, host_id)` references `inventory_revisions.(id, host_id)` so a snapshot cannot cross host ownership.
 - Listener, service, and tool observations reference their revision with `ON DELETE CASCADE`.
-- Drift events reference the host with `ON DELETE RESTRICT` and snapshots with `ON DELETE SET NULL`.
+- Drift events reference the host with `ON DELETE RESTRICT`. `from_snapshot_id` and `to_snapshot_id` each have a single-column foreign key to `host_snapshots(id) ON DELETE SET NULL`.
 - Audit events reference hosts with `ON DELETE SET NULL` so administrative evidence can outlive an explicitly purged host.
-- Drift events have a deterministic uniqueness constraint across host, from/to snapshots, kind, resource type, and resource key.
+- Drift events have `UNIQUE(host_id, event_key)`. The immutable key is computed from the original host, from/to snapshot IDs, kind, resource type, and resource key, so pruning nullable snapshot references cannot collapse uniqueness or block deletion.
 - Managed hosts are soft-retired. The first implementation has no physical host-delete or user-facing purge operation.
 - Snapshot pruning deletes occurrences first, then deletes only revisions no longer referenced by any snapshot.
+
+SQLite cannot express “nullable snapshot belongs to this required host” using a composite `ON DELETE SET NULL` foreign key, because that action would also attempt to null `drift_events.host_id`. Same-host integrity is instead database-enforced with validation triggers:
+
+```sql
+CREATE TRIGGER drift_events_same_host_insert
+BEFORE INSERT ON drift_events
+FOR EACH ROW
+WHEN
+  (
+    NEW.from_snapshot_id IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1
+      FROM host_snapshots
+      WHERE id = NEW.from_snapshot_id
+        AND host_id = NEW.host_id
+    )
+  )
+  OR
+  (
+    NEW.to_snapshot_id IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1
+      FROM host_snapshots
+      WHERE id = NEW.to_snapshot_id
+        AND host_id = NEW.host_id
+    )
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'drift snapshot host mismatch');
+END;
+
+CREATE TRIGGER drift_events_same_host_update
+BEFORE UPDATE OF host_id, from_snapshot_id, to_snapshot_id ON drift_events
+FOR EACH ROW
+WHEN
+  (
+    NEW.from_snapshot_id IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1
+      FROM host_snapshots
+      WHERE id = NEW.from_snapshot_id
+        AND host_id = NEW.host_id
+    )
+  )
+  OR
+  (
+    NEW.to_snapshot_id IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1
+      FROM host_snapshots
+      WHERE id = NEW.to_snapshot_id
+        AND host_id = NEW.host_id
+    )
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'drift snapshot host mismatch');
+END;
+```
+
+Null snapshot IDs are deliberately accepted, so an `ON DELETE SET NULL` action during pruning preserves the drift event and its required host ID. The individual snapshot foreign keys still reject unknown snapshot IDs.
 
 ## Required indexes
 
@@ -254,9 +348,12 @@ Read-only observations may append one `completed` or `failed` event without bloc
 - `tool_observations(revision_id, tool_id)`
 - `drift_events(host_id, detected_at_ms DESC)`
 - `drift_events(host_id, kind, detected_at_ms DESC)`
+- `drift_events(host_id, event_key)` unique
 - `audit_events(host_id, occurred_at_ms DESC)`
 - `audit_events(action, occurred_at_ms DESC)`
 - `audit_events(request_id, occurred_at_ms)`
+- `audit_events(request_id) WHERE phase = 'requested'` unique
+- `audit_events(request_id) WHERE phase IN ('completed', 'failed')` unique
 
 Query plans for latest snapshot, bounded history, drift-by-kind, and audit-by-action must use indexes in tests.
 
@@ -350,10 +447,13 @@ Backup scheduling, remote backup upload, encryption/key management, and point-in
 - Deduplicate normalized inventory revisions while preserving each snapshot occurrence.
 - Atomically create snapshots and deterministic drift events; the first snapshot creates no drift, and opened/closed/exposure events retain current `diffPorts` semantics.
 - Persist structured administrative request/outcome audit events, fail closed before mutation if the request event cannot be committed, and never persist secrets or raw output.
+- Reject drift inserts and updates when either non-null snapshot belongs to another host.
+- Reject a `completed` plus `failed` terminal pair for one audit request while accepting valid `requested` to `completed` and `requested` to `failed` sequences.
 - Provide bounded latest/history queries without changing existing route authorization or response compatibility.
 - Apply the documented default retention and orphan cleanup while preserving the latest two snapshots.
 - Implement online backup, offline restore validation, corruption refusal, and clean shutdown behavior.
 - Test migrations, rollback, deduplication, transaction atomicity, concurrent reads/serialized writes, busy timeout, retention, foreign-key deletion, indexed query plans, restart durability, backup/restore, corruption, permissions, symlink/path denial, and sensitive-data exclusion.
+- Test snapshot pruning with each and both drift snapshot references, proving that events and required host IDs survive while deleted references become null.
 - Keep Linux runtime behavior functional and compile supported Windows observation/API code without executing Windows binaries in Linux CI.
 - Pass all six mandatory CI checks.
 
