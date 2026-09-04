@@ -4,11 +4,11 @@ Last updated: 2026-09-04
 
 ## Current Phase
 
-CI and security quality gates.
+M2 durable inventory and snapshot architecture.
 
 ## Current `main`
 
-Current head: `005aa04d4755ab76a4c0ae1ecd963469e5235105` (`Complete StackWarden security baseline (#18)`).
+Current head: `abf0348b0208aa10daf7bf6b031cae80561312ba` (`Add enforceable Go CI quality gates (#22)`).
 
 Implemented on `main`:
 
@@ -28,30 +28,29 @@ Implemented on `main`:
 - Versioned read/write route separation.
 - Writes disabled by default and Bearer authorization for enabled writes.
 - Validated managed tool/template paths and structured command execution.
+- Six mandatory CI checks for formatting, static analysis, tests, Linux builds, Windows compilation, and vulnerability scanning.
 
 ## Active / Pending Work
 
 - Issue #20 and PR #18 are complete and merged on `main`.
-- Issue #21 is implemented in draft PR #22 with pull-request and `main`-push checks for formatting, vet, tests, Linux builds, Windows compilation, and vulnerability analysis.
-- Issue #21 raises the supported build baseline from end-of-life Go 1.22 to patched Go 1.25.13 because current vulnerability analysis finds reachable standard-library vulnerabilities under the old toolchain.
-- All six PR checks passed on the restored clean implementation after an intentional formatting defect proved `CI / Formatting` fails closed.
-- Branch protection still requires maintainer configuration after stable check names exist.
+- Issue #21 and PR #22 are complete and merged; the `Protect main` ruleset requires all six CI checks.
+- D-012 now selects API-owned SQLite and a host-scoped schema for the first single-host durable store.
+- Issue #23 tracks implementation of the accepted durable-storage architecture after the D-012 architecture PR merges.
 
 ## Current Objective
 
-1. Complete Issue #21 and require its stable checks through branch protection.
-2. Resolve D-012 through a dedicated durable inventory/snapshot architecture decision.
-3. Move from transient port-event state toward the broader `discovery -> snapshot -> drift -> exposure -> policy` model.
+1. Review and merge the D-012 architecture without adding database code.
+2. Implement the accepted architecture through Issue #23.
+3. Build the drift and exposure models on durable snapshots.
 
 ## Blockers / Unresolved Items
 
-- CI is not enforceable until the Issue #21 workflow is merged and its checks are selected in a `main` branch protection rule/ruleset.
-- Repository branch-protection and Actions settings were not readable by the automation integration; a maintainer must verify them in GitHub.
-- Persistence architecture for snapshots/drift/audit is not yet decided.
+- Durable persistence is not implemented; current snapshot, port-event, and audit state is still volatile until Issue #23 is complete.
 - Authentication/authorization beyond the merged minimal write token is not yet a settled long-term design.
 - Deployment/service model (systemd units, package/install flow, upgrade strategy) needs a dedicated design/task.
 - The boundary between supported remediation actions and observation-only features needs to be expanded deliberately, not ad hoc.
+- Remote host enrollment/authentication and the eventual trigger for moving beyond single-instance SQLite remain deferred decisions.
 
 ## Next Recommended Action
 
-Complete and merge Issue #21 after all GitHub Actions checks pass, then configure those checks as required for `main`. Next, resolve D-012 in a dedicated architecture issue before implementing durable inventory or a database.
+After the D-012 architecture PR is approved and merged, implement Issue #23 exactly against `docs/architecture/durable-storage.md`, beginning with the API storage interface, secure SQLite bootstrap, and schema migrations.

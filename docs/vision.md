@@ -78,9 +78,9 @@ These are foundations, not the finished product.
 
 ## Near-term direction
 
-The management-plane security baseline is merged. The immediate priority is enforcing automated formatting, analysis, test, build, cross-platform compile, and vulnerability checks through Issue #21.
+The management-plane security baseline and mandatory CI quality gates are merged. D-012 defines the durable inventory/snapshot architecture; Issue #23 is the next implementation task.
 
-After CI is established, the project should design durable inventory/snapshot storage, then build a drift model, then exposure classification, and only then broader policy/remediation.
+After durable inventory/snapshot storage is implemented, the project should build the drift model, then exposure classification, and only then broader policy/remediation.
 
 ## Explicit non-goals for now
 

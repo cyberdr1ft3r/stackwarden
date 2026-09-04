@@ -34,11 +34,13 @@ Required outcomes:
 
 Issue #20 / PR #18 completed this milestone on `main`.
 
-## M2 - Durable inventory and snapshots
+## M2 - Durable inventory and snapshots (current)
 
 Goal: turn transient observation into durable host state.
 
-Candidate scope (requires architecture decision first):
+Architecture: D-012 selects API-owned SQLite for an initial single-host store with host-scoped schema, deduplicated inventory revisions, durable drift/audit events, finite retention, and secure backup/recovery. Implementation is tracked by Issue #23.
+
+Implementation scope:
 - Host identity/model.
 - Snapshot schema.
 - Persistent port/service/tool inventory.
@@ -46,7 +48,7 @@ Candidate scope (requires architecture decision first):
 - Retention policy.
 - Single-host vs future multi-host assumptions.
 
-Do not select a database/storage engine until D-012 is resolved.
+Do not expand Issue #23 into multi-host enrollment, metrics time-series storage, PostgreSQL, or broader remediation.
 
 ## M3 - Drift engine
 
@@ -91,7 +93,7 @@ These can be scheduled as dedicated issues when needed:
 - Production installation/systemd packaging.
 - Auth/session/role architecture beyond the minimal security baseline.
 - Logging and durable audit export.
-- CI quality gates (Issue #21 in progress); release/versioning automation remains separate.
+- CI quality gates (Issue #21 / PR #22 complete and enforced); release/versioning automation remains separate.
 - Secure upgrade/rollback.
 - Documentation/runbooks.
 - Threat-model updates and security tests.

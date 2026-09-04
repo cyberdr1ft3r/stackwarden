@@ -4,13 +4,14 @@ Last updated: 2026-09-04
 
 ## Next concrete engineering task
 
-Complete review and merge of draft PR #22 for Issue #21, require its stable checks in GitHub branch protection, then open a dedicated architecture issue to resolve D-012 for durable inventory and snapshots.
+After the D-012 architecture PR merges, implement [Issue #23](https://github.com/cyberdr1ft3r/stackwarden/issues/23): API-owned durable SQLite inventory and history storage.
 
-Issue #20 / PR #18 is merged on `main` as `005aa04d4755ab76a4c0ae1ecd963469e5235105`.
+Do not begin implementation from this architecture branch and do not add persistence code to the D-012 PR.
 
 ## Read first
 
-- Issue #21 and its CI pull request, including checks, reviews, and unresolved threads.
+- Issue #23 and all comments.
+- `docs/architecture/durable-storage.md`
 - `AGENTS.md`
 - `PROJECT_MEMORY.md`
 - `docs/project/STATUS.md`
@@ -22,17 +23,20 @@ Issue #20 / PR #18 is merged on `main` as `005aa04d4755ab76a4c0ae1ecd963469e5235
 - `.agents/skills/project-memory/SKILL.md`
 - `.agents/skills/security-boundary/SKILL.md`
 
-## Issue #21 completion conditions
+## Required implementation sequence
 
-- Pull requests and pushes to `main` trigger checks with stable names for formatting, static analysis, tests, builds, Windows compilation, and vulnerability scanning.
-- Workflows use read-only permissions, immutable action pins, no production secrets, and no deployment/publishing behavior.
-- Equivalent local commands are documented and pass.
-- All checks run with the supported patched Go 1.25.13 baseline.
-- Representative malformed Go formatting is proven to fail the formatting gate.
-- The new pull request's actual GitHub Actions checks pass.
-- A maintainer configures these checks as required for `main`: `CI / Formatting`, `CI / Static analysis`, `CI / Tests`, `CI / Build`, `CI / Windows compile`, and `CI / Vulnerability scan`.
-- Branch protection requires pull requests and branches to be current before merge.
+1. Add the API storage/repository boundary and select a reviewed pure-Go SQLite driver.
+2. Add secure path/bootstrap handling and embedded checksum-verified migrations.
+3. Implement the host, revision, snapshot, listener, service, tool, drift, and audit schema.
+4. Persist complete normalized snapshots atomically and deduplicate revisions.
+5. Add bounded history queries, retention/pruning, backup/restore validation, corruption refusal, and safe shutdown.
+6. Integrate handlers without changing route authorization or response compatibility.
 
-## After Issue #21
+## Completion conditions
 
-After CI is merged and enforced, resolve D-012 through a dedicated architecture decision covering host identity, snapshot schema, retention, single-host versus future multi-host assumptions, and storage tradeoffs. Do not implement a database until that decision is accepted.
+- Every acceptance criterion in Issue #23 and the D-012 architecture is tested.
+- No Bearer token, credential, environment content, request body, PID, raw command output, or automatic host fingerprint is persisted.
+- Migration, rollback, concurrency, retention, indexed query, restart, backup/restore, corruption, permission, and path/symlink tests pass.
+- Linux behavior remains functional; Windows agent/API code compiles without execution.
+- All six mandatory CI checks pass.
+- Project memory describes persistence as current behavior only after the implementation PR merges.

@@ -1,6 +1,6 @@
 # StackWarden Threat Model
 
-Last updated: 2026-08-08
+Last updated: 2026-09-04
 
 ## Scope
 
@@ -140,6 +140,17 @@ If StackWarden grows beyond a single trusted operator, insufficient role/action 
 Required future control:
 - Explicit identity/role/permission architecture before multi-user management is claimed supported.
 
+### T-011 - Durable inventory disclosure, tampering, or loss
+
+Persisted listeners, services, tools, drift, and audit history reveal security posture and influence operator decisions. Insecure files, unsafe migrations/backups, corruption, or silent recreation could disclose or destroy that evidence.
+
+Required controls:
+- API-only database ownership and strict local path/permission validation.
+- No tokens, credentials, environment contents, raw command output, or unnecessary host fingerprints.
+- Transactional checksum-verified migrations and atomic snapshot/drift writes.
+- Finite retention, verified backup/restore, corruption refusal, and safe shutdown.
+- No SQLite use over shared/network filesystems or from multiple API processes.
+
 ## Security invariants
 
 These should be treated as regression-sensitive:
@@ -167,4 +178,6 @@ Any PR touching agent actions, installers, networking, auth, paths, or write API
 
 Current `main` includes the Issue #20 baseline: loopback API default, Unix-socket agent transport, read/write route separation, write-disabled-by-default behavior, Bearer checks for enabled writes, managed-path validation, and structured command execution.
 
-These controls remain regression-sensitive. Issue #21 adds automated formatting, static analysis, tests, builds, cross-platform compilation, and vulnerability checks; branch protection must require those checks after the workflow is merged.
+These controls remain regression-sensitive. Issue #21 / PR #22 added six mandatory CI checks enforced by the `Protect main` ruleset.
+
+D-012 defines the next storage boundary: API-owned SQLite with minimized host inventory, durable drift/audit evidence, strict filesystem controls, and no secret persistence. Storage remains unimplemented until Issue #23 is complete.
