@@ -8,7 +8,7 @@ Security-baseline consolidation.
 
 ## Current `main`
 
-Head inspected before the project-memory merge: `51144040ba1b2cb06d3c54cfa742c39819252669`.
+Current head after the project-memory merge from PR #19: `fb2c293`.
 
 Implemented on `main`:
 
@@ -33,8 +33,11 @@ State as of 2026-09-04:
 - Open and not merged.
 - Mergeable when inspected.
 - Base: `main`.
-- Current head: `c5f58e03e29997b6ed3032a9284c762c23fea14e`.
-- Follow-up fixes have been added since the initial security review, but the complete Issue #20 acceptance criteria still require final verification before merge.
+- Latest `main`, including PR #19, is merged into the branch.
+- Issue #20 implementation and verification are complete on the branch.
+- `make test`, `make build`, focused security tests, Linux manual API checks, and Windows cross-compilation pass.
+- The environment did not provide `ss`; `netstat` confirmed the API on `127.0.0.1:8080` with no `:9091` agent TCP listener.
+- PR #18 is ready for final maintainer review but must not be treated as `main` behavior until merged.
 
 PR #18 proposes:
 
@@ -52,19 +55,19 @@ Do not document these as current `main` behavior until PR #18 is fully validated
 
 Open tracking issues:
 
-- Issue #20: complete and validate the security baseline in PR #18. This is the next engineering task.
-- Issue #21: add CI and security quality gates after Issue #20 / PR #18 is complete.
+- Issue #20: implementation and local verification are complete in PR #18; close when the PR is merged.
+- Issue #21: add CI and security quality gates after PR #18 is merged.
 
 ## Current Objective
 
-1. Complete Issue #20 by validating and, where necessary, fixing PR #18 against the security model.
-2. Merge PR #18 only after every security, compatibility, build, and test acceptance criterion is verified.
-3. Add CI and security quality gates through Issue #21.
-4. Move from transient port-event state toward the broader `discovery -> snapshot -> drift -> exposure -> policy` model.
+1. Complete final review and maintainer merge of PR #18 without broadening its scope.
+2. Add CI and security quality gates through Issue #21.
+3. Move from transient port-event state toward the broader `discovery -> snapshot -> drift -> exposure -> policy` model.
 
 ## Blockers / Unresolved Items
 
-- PR #18 still needs final Issue #20 validation before merge.
+- PR #18 remains unmerged and needs final maintainer review.
+- No automated PR checks are currently reported; Issue #21 is intended to add CI/security gates.
 - Persistence architecture for snapshots/drift/audit is not yet decided.
 - Authentication/authorization beyond the minimal proposed write token is not yet a settled long-term design.
 - Deployment/service model (systemd units, package/install flow, upgrade strategy) needs a dedicated design/task.
@@ -72,4 +75,4 @@ Open tracking issues:
 
 ## Next Recommended Action
 
-Execute Issue #20 against PR #18. Re-read the current PR diff and review state, verify the API bind behavior, read/write route compatibility, UI token flow, Unix-socket permissions, write-route coverage, tool/path validation, absence of arbitrary shell surfaces, Linux behavior, and supported Windows compilation. Run `make test` and `make build`, update the project memory with the verified result, and leave PR #18 either ready to merge or explicitly blocked.
+Perform final maintainer review of PR #18 and merge it if approved. Then execute Issue #21 to add automated CI and security quality gates for the verified baseline.
