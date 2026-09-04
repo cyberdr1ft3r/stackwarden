@@ -136,4 +136,4 @@ Status: Design mitigation accepted; implementation pending Issue #23
 
 Unbounded history can exhaust disk, while an unsafe migration, WAL copy, or automatic recreation can destroy forensic state.
 
-D-012 defines finite retention, bounded pruning, transactional checksum-verified migrations, online backup, offline restore validation, clean shutdown, and fail-closed corruption handling. These controls require fault-injection and recovery tests before persistence is considered complete.
+D-012 defines age and volume ceilings, insert-time audit-cap enforcement, complete request-group pruning, startup/hourly maintenance independent of collection health, bounded maintenance transactions, transactional checksum-verified migrations, online backup, offline restore validation, clean shutdown, and fail-closed corruption handling. These controls require fault-injection and recovery tests before persistence is considered complete.

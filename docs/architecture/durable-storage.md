@@ -17,7 +17,7 @@ Persistence must improve continuity without turning StackWarden into a general t
 - Store immutable snapshot occurrences that reference deduplicated, normalized inventory revisions.
 - Persist listeners, minimally described services, detected catalog tools, drift events, and structured administrative audit events.
 - Keep live metrics, PIDs, raw command output, collection diagnostics, credentials, tokens, and environment contents ephemeral.
-- Use embedded, append-only forward migrations; WAL mode; full synchronous durability; foreign keys; bounded writer serialization; and explicit retention.
+- Use embedded, append-only forward migrations; WAL mode; full synchronous durability; foreign keys; bounded writer serialization; volume/age retention; and independent maintenance.
 - Default to `/var/lib/stackwarden/api/stackwarden.db`, owned by the API service account, with a `0700` directory and `0600` database, WAL, and shared-memory files.
 - Fail startup on migration, permission, corruption, or unsupported-schema errors. Never silently replace the database or fall back to volatile storage.
 
@@ -221,16 +221,20 @@ Administrative mutations use two append-only events with the same request ID: `r
 
 | Column | Notes |
 | --- | --- |
-| `id TEXT PRIMARY KEY`, `host_id TEXT NULL` | Event identity and optional host |
-| `request_id TEXT NOT NULL` | Random correlation UUID, not a credential |
+| `id TEXT PRIMARY KEY`, `host_id TEXT NULL` | Canonical 36-byte UUIDs; optional host |
+| `request_id TEXT NOT NULL` | Canonical 36-byte correlation UUID, not a credential |
 | `phase TEXT NOT NULL` | `requested`, `completed`, or `failed` |
-| `actor_kind TEXT NOT NULL` | Bounded value such as `api_token` or `system`; no token identity/value |
-| `action TEXT NOT NULL` | Bounded action name |
-| `target_type`, `target_id TEXT NULL` | Validated resource reference |
-| `outcome TEXT NOT NULL`, `error_code TEXT NULL` | Structured result; no raw error/output |
+| `actor_kind TEXT NOT NULL` | Maximum 32 bytes, such as `api_token` or `system`; no token identity/value |
+| `action TEXT NOT NULL` | Maximum 128 bytes |
+| `target_type TEXT NULL` | Maximum 64 bytes |
+| `target_id TEXT NULL` | Maximum 255 bytes |
+| `outcome TEXT NOT NULL` | Maximum 32 bytes |
+| `error_code TEXT NULL` | Maximum 64 bytes; no raw error/output |
 | `occurred_at_ms INTEGER NOT NULL` | API event time |
 
 `phase` has a `CHECK` constraint allowing only `requested`, `completed`, or `failed`.
+
+The API validates UTF-8 byte lengths before insertion, and SQLite mirrors every limit with `CHECK(length(CAST(column AS BLOB)) <= limit)` constraints. UUID columns require canonical 36-byte values. No unbounded text/blob or general details field exists in `audit_events`, so the request-group ceiling is a meaningful volume bound.
 
 Two partial unique indexes enforce cardinality:
 
@@ -265,7 +269,9 @@ END;
 
 A `BEFORE INSERT` trigger rejects a terminal event unless its matching `requested` row already exists with the same null-safe `host_id`, action, target type, and target ID. The terminal partial index then guarantees that `completed` and `failed` cannot both exist for one request. A request therefore has exactly one requested event and zero terminal events while in flight, or one terminal event after completion.
 
-A state-changing action must not reach the agent if its `requested` audit event cannot be committed. Read-only observations use the same request/terminal shape when persisted, but audit-storage failure does not block the read. Audit rows are append-only until retention prunes complete request groups atomically.
+A state-changing action must not reach the agent if its `requested` audit event cannot be committed. Every authorized state-changing `/v1/write/*` operation and explicit system administrative operation remains durably audited.
+
+Routine read requests—including successful or failed health, ports, metrics, tool-status, and history reads—remain ephemeral and do not create durable audit rows. Authorization denials also remain in bounded process logs/metrics rather than durable per-request rows, preventing unauthenticated database-write amplification. Audit rows are append-only until retention prunes complete request groups atomically.
 
 ## Relationships and deletion behavior
 
@@ -390,15 +396,32 @@ Initial defaults:
 
 - snapshots: 30 days and at most 10,000 occurrences per host;
 - drift events: 180 days;
-- audit events: 90 days.
+- audit events: 90 days and at most 10,000 request groups database-wide (therefore at most 20,000 rows).
 
-Retention is configurable through validated API-owned settings with finite defaults. Pruning runs after a successful snapshot and at most once per day, deletes in bounded batches, and always preserves the newest two complete snapshots for every active host.
+Retention is configurable through validated API-owned settings with finite defaults. `STACKWARDEN_AUDIT_MAX_REQUESTS` may be set from 1,000 through 100,000; there is no unlimited value. The count applies to distinct `request_id` groups across all hosts so system/null-host records are also bounded.
 
 Age and count limits are both enforced: records older than the age limit are eligible for deletion, and the oldest remaining records are deleted when the count limit is exceeded. The newest-two safeguard takes precedence over both limits.
 
 Snapshot deletion sets drift snapshot references to null. Orphaned inventory revisions and their listener/service/tool children are then deleted in the same maintenance transaction. Drift and audit rows are independently age-pruned. Managed hosts are soft-retired and are never automatically deleted.
 
-The implementation must not expose a general deletion API. Explicit host purge, legal hold, event acknowledgement, and per-host policy are deferred. Automatic `VACUUM` on every prune is prohibited; periodic WAL checkpoint and incremental vacuum may be performed as bounded maintenance.
+Audit pruning selects request IDs, not individual rows, and deletes each selected request plus its terminal event atomically. Pending requests are not split: a requested event older than 24 hours is first completed with a synthetic `failed` terminal event using bounded error code `outcome_unknown_timeout`, then the complete group becomes eligible for normal age/count pruning.
+
+The hard audit ceiling is also enforced in the transaction that inserts a new `requested` event. Before insertion, that transaction prunes the oldest eligible complete groups until the new group fits. If it cannot make room because pruning fails or the ceiling is consumed by protected pending groups, the insertion fails and the state-changing operation is denied before reaching the agent. The database therefore never relies solely on periodic maintenance to enforce the audit count ceiling.
+
+## Independent maintenance
+
+- Run one maintenance pass after migrations and integrity checks during startup, before enabling collection or state-changing routes.
+- Run a single-flight maintenance loop every hour by default, configurable from five minutes through 24 hours with `STACKWARDEN_MAINTENANCE_INTERVAL`.
+- The maintenance loop is API/storage-owned and performs no agent call. Agent health, collection failure, and the absence of a successful snapshot cannot suppress it.
+- A successful snapshot may request an additional pass, but requests are coalesced and rate-limited; snapshot success is never the only retention trigger.
+- Audit groups, drift events, snapshots, and orphan revisions are pruned in separate transactions so failure in one category does not prevent attempts for the others.
+- Each transaction processes at most 500 rows or 250 request/snapshot groups and has a five-second deadline. Remaining work continues in later bounded transactions without holding a long writer lock.
+- Maintenance records in-memory status containing last attempt/success timestamps, per-category result codes, and whether backlog remains. It never includes SQL text, database contents, or sensitive paths.
+- `GET /v1/read/health` exposes an optional bounded maintenance/storage status while preserving existing fields; a dedicated bounded storage-health response may be added if needed.
+- A failed startup pass leaves live read-only endpoints available in explicit degraded state, but snapshot commits and state-changing routes fail closed until a maintenance pass succeeds. Scheduled retries continue independently.
+- Runtime maintenance failure marks storage health degraded, emits a structured error log/code, and causes state-changing operations that cannot enforce their audit ceiling to fail closed. It must not silently disable retention.
+
+The implementation must not expose a general deletion API. Explicit host purge, legal hold, event acknowledgement, and per-host policy are deferred. Automatic `VACUUM` on every prune is prohibited; periodic WAL checkpoint and incremental vacuum may be performed as bounded independent maintenance.
 
 ## Migrations and schema versioning
 
@@ -447,13 +470,20 @@ Backup scheduling, remote backup upload, encryption/key management, and point-in
 - Deduplicate normalized inventory revisions while preserving each snapshot occurrence.
 - Atomically create snapshots and deterministic drift events; the first snapshot creates no drift, and opened/closed/exposure events retain current `diffPorts` semantics.
 - Persist structured administrative request/outcome audit events, fail closed before mutation if the request event cannot be committed, and never persist secrets or raw output.
+- Keep routine successful/failed reads and authorization denials out of durable audit storage while preserving durable request/outcome records for authorized state-changing administrative operations.
+- Enforce the 90-day and 10,000-request-group audit limits, all audit field byte limits, and a maximum of two rows per request.
+- Prune complete audit request groups atomically; terminalize stale pending requests before they become eligible for pruning.
 - Reject drift inserts and updates when either non-null snapshot belongs to another host.
 - Reject a `completed` plus `failed` terminal pair for one audit request while accepting valid `requested` to `completed` and `requested` to `failed` sequences.
 - Provide bounded latest/history queries without changing existing route authorization or response compatibility.
 - Apply the documented default retention and orphan cleanup while preserving the latest two snapshots.
+- Run bounded pruning during startup and from the independent scheduled maintenance loop even while the agent and snapshot collection remain unhealthy.
+- Expose maintenance failures through bounded health/error status and fail closed where audit-ceiling enforcement cannot be guaranteed.
 - Implement online backup, offline restore validation, corruption refusal, and clean shutdown behavior.
 - Test migrations, rollback, deduplication, transaction atomicity, concurrent reads/serialized writes, busy timeout, retention, foreign-key deletion, indexed query plans, restart durability, backup/restore, corruption, permissions, symlink/path denial, and sensitive-data exclusion.
 - Test snapshot pruning with each and both drift snapshot references, proving that events and required host IDs survive while deleted references become null.
+- Test audit age/count ceilings, field-length checks, atomic complete-group pruning, stale-pending terminalization, and denial when insert-time ceiling enforcement cannot make room.
+- Test startup and scheduled pruning of audit, drift, snapshot, and orphan data during sustained agent/collection failure, including bounded transactions and degraded health reporting.
 - Keep Linux runtime behavior functional and compile supported Windows observation/API code without executing Windows binaries in Linux CI.
 - Pass all six mandatory CI checks.
 

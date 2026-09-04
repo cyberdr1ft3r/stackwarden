@@ -38,6 +38,8 @@ Do not begin implementation from this architecture branch and do not add persist
 - No Bearer token, credential, environment content, request body, PID, raw command output, or automatic host fingerprint is persisted.
 - Migration, rollback, concurrency, retention, indexed query, restart, backup/restore, corruption, permission, and path/symlink tests pass.
 - Database tests reject cross-host drift snapshot references, reject dual audit terminal outcomes, accept both valid terminal sequences, and preserve drift events/host IDs when snapshot pruning nulls references.
+- Audit tests enforce age/count and byte-length limits, atomic request-group pruning, stale-pending completion, and durable state-changing operations while routine reads remain ephemeral.
+- Maintenance tests prove startup/hourly bounded pruning continues during agent and collection failure and exposes degraded health/fail-closed behavior on errors.
 - Linux behavior remains functional; Windows agent/API code compiles without execution.
 - All six mandatory CI checks pass.
 - Project memory describes persistence as current behavior only after the implementation PR merges.

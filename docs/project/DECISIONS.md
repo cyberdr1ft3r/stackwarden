@@ -86,6 +86,8 @@ SQLite uses embedded forward migrations, WAL with full synchronous durability, s
 
 Database triggers enforce that every non-null drift snapshot reference belongs to the event's required host while independent snapshot foreign keys use `ON DELETE SET NULL` for pruning. Administrative audit events use phase checks and partial unique indexes so each request has one requested row and at most one terminal row (`completed` or `failed`, never both).
 
+Durable audit is limited to authorized state-changing and explicit system administrative operations; routine reads and authorization denials remain ephemeral. Audit retention enforces both 90 days and 10,000 bounded request groups database-wide. Startup and hourly maintenance prune audit, drift, snapshots, and orphan revisions independently of agent/snapshot health, with bounded transactions and degraded health reporting on failure.
+
 The complete schema, lifecycle, security controls, tradeoffs, and implementation acceptance criteria are in [`docs/architecture/durable-storage.md`](../architecture/durable-storage.md).
 
 ## D-013 - Security-baseline interface
