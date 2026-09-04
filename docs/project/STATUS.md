@@ -1,6 +1,6 @@
 # StackWarden Project Status
 
-Last updated: 2026-08-08
+Last updated: 2026-09-04
 
 ## Current Phase
 
@@ -8,7 +8,7 @@ Security-baseline consolidation.
 
 ## Current `main`
 
-Head inspected: `51144040ba1b2cb06d3c54cfa742c39819252669`.
+Head inspected before the project-memory merge: `51144040ba1b2cb06d3c54cfa742c39819252669`.
 
 Implemented on `main`:
 
@@ -28,13 +28,13 @@ Implemented on `main`:
 
 PR #18: `Harden local-only baseline; split read/write API and lock down agent`
 
-State as of 2026-08-08:
+State as of 2026-09-04:
 
-- Open.
-- Not merged.
+- Open and not merged.
 - Mergeable when inspected.
-- Base: `main` at `51144040ba1b2cb06d3c54cfa742c39819252669`.
-- Head: `9f7362968d19057416b3eb4096dba857ac311869`.
+- Base: `main`.
+- Current head: `c5f58e03e29997b6ed3032a9284c762c23fea14e`.
+- Follow-up fixes have been added since the initial security review, but the complete Issue #20 acceptance criteria still require final verification before merge.
 
 PR #18 proposes:
 
@@ -46,19 +46,25 @@ PR #18 proposes:
 - Bearer token required when writes are enabled.
 - Safer tool ID/path validation.
 - Removal of remaining shell-string execution patterns in affected flows.
+- UI route and write-token compatibility fixes.
 
-Do not document these as current `main` behavior until the PR is reviewed and merged.
+Do not document these as current `main` behavior until PR #18 is fully validated and merged.
+
+Open tracking issues:
+
+- Issue #20: complete and validate the security baseline in PR #18. This is the next engineering task.
+- Issue #21: add CI and security quality gates after Issue #20 / PR #18 is complete.
 
 ## Current Objective
 
-1. Establish durable project memory and Codex operating rules in Git.
-2. Review PR #18 against the security model and current project direction.
-3. Merge/fix the security baseline before adding broader privileged remediation features.
+1. Complete Issue #20 by validating and, where necessary, fixing PR #18 against the security model.
+2. Merge PR #18 only after every security, compatibility, build, and test acceptance criterion is verified.
+3. Add CI and security quality gates through Issue #21.
 4. Move from transient port-event state toward the broader `discovery -> snapshot -> drift -> exposure -> policy` model.
 
 ## Blockers / Unresolved Items
 
-- PR #18 needs final review against project security rules before merge.
+- PR #18 still needs final Issue #20 validation before merge.
 - Persistence architecture for snapshots/drift/audit is not yet decided.
 - Authentication/authorization beyond the minimal proposed write token is not yet a settled long-term design.
 - Deployment/service model (systemd units, package/install flow, upgrade strategy) needs a dedicated design/task.
@@ -66,4 +72,4 @@ Do not document these as current `main` behavior until the PR is reviewed and me
 
 ## Next Recommended Action
 
-Review PR #18 as the next engineering task. Verify its diff, tests, route compatibility, Unix-socket permissions, API bind protections, tool/path validation, and absence of arbitrary shell surfaces. Update project memory with the review result before expanding scope.
+Execute Issue #20 against PR #18. Re-read the current PR diff and review state, verify the API bind behavior, read/write route compatibility, UI token flow, Unix-socket permissions, write-route coverage, tool/path validation, absence of arbitrary shell surfaces, Linux behavior, and supported Windows compilation. Run `make test` and `make build`, update the project memory with the verified result, and leave PR #18 either ready to merge or explicitly blocked.
