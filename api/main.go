@@ -3,6 +3,8 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -99,6 +101,12 @@ type VersionInfo struct {
 	Version string `json:"version"`
 	Commit  string `json:"commit,omitempty"`
 	BuiltAt string `json:"builtAt,omitempty"`
+}
+
+type securityConfig struct {
+	WriteEnabled bool
+	Token        string
+	AgentSocket  string
 }
 
 const projectName = "StackWarden"
@@ -410,7 +418,7 @@ func buildBundle(toolID string) (*bytes.Buffer, error) {
 	return buf, nil
 }
 
-func handleToolInstall(w http.ResponseWriter, r *http.Request, audit *auditLog, toolID string) {
+func handleToolInstall(w http.ResponseWriter, r *http.Request, audit *auditLog, agentClient *http.Client, toolID string) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -426,9 +434,7 @@ func handleToolInstall(w http.ResponseWriter, r *http.Request, audit *auditLog, 
 		return
 	}
 
-	agentURL := buildAgentURL("/tools/" + toolID + "/install")
-	client := &http.Client{Timeout: 65 * time.Second}
-	resp, err := client.Post(agentURL, "application/json", nil)
+	resp, err := callAgent(agentClient, http.MethodPost, "/tools/"+toolID+"/install", nil, 65*time.Second)
 	if err != nil {
 		w.WriteHeader(http.StatusBadGateway)
 		_ = json.NewEncoder(w).Encode(installResponse{
@@ -470,7 +476,7 @@ func handleToolInstall(w http.ResponseWriter, r *http.Request, audit *auditLog, 
 	_, _ = w.Write(body)
 }
 
-func handleToolStatus(w http.ResponseWriter, r *http.Request, audit *auditLog, toolID string) {
+func handleToolStatus(w http.ResponseWriter, r *http.Request, audit *auditLog, agentClient *http.Client, toolID string) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -487,9 +493,7 @@ func handleToolStatus(w http.ResponseWriter, r *http.Request, audit *auditLog, t
 		return
 	}
 
-	agentURL := buildAgentURL("/tools/" + toolID + "/status")
-	client := &http.Client{Timeout: 35 * time.Second}
-	resp, err := client.Get(agentURL)
+	resp, err := callAgent(agentClient, http.MethodGet, "/tools/"+toolID+"/status", nil, 35*time.Second)
 	if err != nil {
 		w.WriteHeader(http.StatusBadGateway)
 		_ = json.NewEncoder(w).Encode(shared.OperationResult{OK: false, Error: "failed to reach agent: " + err.Error()})
@@ -516,7 +520,7 @@ func handleToolStatus(w http.ResponseWriter, r *http.Request, audit *auditLog, t
 	_, _ = w.Write(body)
 }
 
-func handleToolUninstall(w http.ResponseWriter, r *http.Request, audit *auditLog, toolID string) {
+func handleToolUninstall(w http.ResponseWriter, r *http.Request, audit *auditLog, agentClient *http.Client, toolID string) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -533,9 +537,7 @@ func handleToolUninstall(w http.ResponseWriter, r *http.Request, audit *auditLog
 		return
 	}
 
-	agentURL := buildAgentURL("/tools/" + toolID + "/uninstall")
-	client := &http.Client{Timeout: 65 * time.Second}
-	resp, err := client.Post(agentURL, "application/json", nil)
+	resp, err := callAgent(agentClient, http.MethodPost, "/tools/"+toolID+"/uninstall", nil, 65*time.Second)
 	if err != nil {
 		w.WriteHeader(http.StatusBadGateway)
 		_ = json.NewEncoder(w).Encode(shared.OperationResult{OK: false, Error: "failed to reach agent: " + err.Error()})
@@ -564,17 +566,28 @@ func handleToolUninstall(w http.ResponseWriter, r *http.Request, audit *auditLog
 
 func main() {
 	mux := http.NewServeMux()
+	readMux := http.NewServeMux()
 	audit := &auditLog{}
 	portEvents := &portEventLog{limit: 100}
 	portsSnapshot := &portSnapshot{}
 
+	cfg, err := loadSecurityConfig()
+	if err != nil {
+		log.Fatal(err)
+	}
+	if cfg.WriteEnabled {
+		log.Printf("WARNING: write endpoints are enabled")
+	}
+
+	agentClient := newAgentClient(cfg.AgentSocket)
+
 	// API health
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	readMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(Health{Status: "ok", Service: "api"})
 	})
 
-	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
+	readMux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
 		info := VersionInfo{
@@ -588,13 +601,10 @@ func main() {
 	})
 
 	// Proxy health check to agent
-	mux.HandleFunc("/agent/health", func(w http.ResponseWriter, r *http.Request) {
+	readMux.HandleFunc("/agent/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
-		agentURL := buildAgentURL("/health")
-
-		client := &http.Client{Timeout: 2 * time.Second}
-		resp, err := client.Get(agentURL)
+		resp, err := callAgent(agentClient, http.MethodGet, "/health", nil, 2*time.Second)
 		if err != nil {
 			_ = json.NewEncoder(w).Encode(AgentHealth{
 				OK:    false,
@@ -628,17 +638,14 @@ func main() {
 		})
 	})
 
-	mux.HandleFunc("/ports", func(w http.ResponseWriter, r *http.Request) {
+	readMux.HandleFunc("/ports", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		ok := false
 		defer func() {
 			audit.recordAudit("ports.read", ok)
 		}()
 
-		agentURL := buildAgentURL("/ports")
-
-		client := &http.Client{Timeout: 3 * time.Second}
-		resp, err := client.Get(agentURL)
+		resp, err := callAgent(agentClient, http.MethodGet, "/ports", nil, 3*time.Second)
 		if err != nil {
 			_ = json.NewEncoder(w).Encode(shared.OperationResult{OK: false, Error: err.Error()})
 			return
@@ -680,17 +687,14 @@ func main() {
 		}
 	})
 
-	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+	readMux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		ok := false
 		defer func() {
 			audit.recordAudit("metrics.read", ok)
 		}()
 
-		agentURL := buildAgentURL("/metrics")
-
-		client := &http.Client{Timeout: 3 * time.Second}
-		resp, err := client.Get(agentURL)
+		resp, err := callAgent(agentClient, http.MethodGet, "/metrics", nil, 3*time.Second)
 		if err != nil {
 			_ = json.NewEncoder(w).Encode(shared.OperationResult{OK: false, Error: err.Error()})
 			return
@@ -715,19 +719,19 @@ func main() {
 		_, _ = w.Write(body)
 	})
 
-	mux.HandleFunc("/audit", func(w http.ResponseWriter, r *http.Request) {
+	readMux.HandleFunc("/audit", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		events := audit.list()
 		_ = json.NewEncoder(w).Encode(events)
 	})
 
-	mux.HandleFunc("/port-events", func(w http.ResponseWriter, r *http.Request) {
+	readMux.HandleFunc("/port-events", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		events := portEvents.list()
 		_ = json.NewEncoder(w).Encode(events)
 	})
 
-	mux.HandleFunc("/tools", func(w http.ResponseWriter, r *http.Request) {
+	readMux.HandleFunc("/tools", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -736,7 +740,7 @@ func main() {
 		_ = json.NewEncoder(w).Encode(tools.Catalog)
 	})
 
-	mux.HandleFunc("/tools/", func(w http.ResponseWriter, r *http.Request) {
+	readMux.HandleFunc("/tools/", func(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/tools/"), "/")
 		if len(parts) != 2 {
 			http.NotFound(w, r)
@@ -744,16 +748,14 @@ func main() {
 		}
 
 		toolID := parts[0]
+		if !isValidToolID(toolID) {
+			http.Error(w, "tool not found", http.StatusNotFound)
+			return
+		}
 		action := parts[1]
 		switch action {
-		case "install":
-			handleToolInstall(w, r, audit, toolID)
-			return
 		case "status":
-			handleToolStatus(w, r, audit, toolID)
-			return
-		case "uninstall":
-			handleToolUninstall(w, r, audit, toolID)
+			handleToolStatus(w, r, audit, agentClient, toolID)
 			return
 		case "bundle":
 		default:
@@ -792,6 +794,10 @@ func main() {
 		_, _ = w.Write(buf.Bytes())
 	})
 
+	mux.Handle("/v1/read/", http.StripPrefix("/v1/read", readMux))
+	registerWriteRoutes(mux, cfg, audit, agentClient)
+	registerLegacyReadRoutes(mux, readMux)
+
 	// Serve UI (static)
 	uiDir := resolveUIDir()
 	fs := http.FileServer(http.Dir(uiDir))
@@ -817,13 +823,24 @@ func getenv(k, def string) string {
 	return def
 }
 
-func buildAgentURL(p string) string {
-	base := getenv("AGENT_BASE", getenv("AGENT_URL", "http://127.0.0.1:9091"))
-	base = strings.TrimRight(base, "/")
-	if base == "" {
-		return p
+func newAgentClient(socketPath string) *http.Client {
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
+		},
 	}
-	return base + p
+	return &http.Client{Transport: transport}
+}
+
+func callAgent(client *http.Client, method, endpoint string, body io.Reader, timeout time.Duration) (*http.Response, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	url := "http://stackwarden-agent" + endpoint
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
+	if err != nil {
+		return nil, err
+	}
+	return client.Do(req)
 }
 
 func resolveUIDir() string {
@@ -853,7 +870,7 @@ func resolveAPIBind(port int, portFlagProvided bool) (string, error) {
 		}
 
 		if bindFromEnv == "" {
-			return fmt.Sprintf(":%d", port), nil
+			return validateBind(fmt.Sprintf("127.0.0.1:%d", port))
 		}
 
 		host, _, err := splitBindHostPort(bindFromEnv)
@@ -861,18 +878,18 @@ func resolveAPIBind(port int, portFlagProvided bool) (string, error) {
 			return "", err
 		}
 
-		return net.JoinHostPort(host, strconv.Itoa(port)), nil
+		return validateBind(net.JoinHostPort(host, strconv.Itoa(port)))
 	}
 
 	if bindFromEnv != "" {
 		return validateBind(bindFromEnv)
 	}
 
-	return ":8080", nil
+	return validateBind("127.0.0.1:8080")
 }
 
 func validateBind(bind string) (string, error) {
-	_, portStr, err := splitBindHostPort(bind)
+	host, portStr, err := splitBindHostPort(bind)
 	if err != nil {
 		return "", err
 	}
@@ -883,7 +900,128 @@ func validateBind(bind string) (string, error) {
 		return "", fmt.Errorf("invalid bind port: %q", bind)
 	}
 
+	if !allowNonLocalBind() && !isLoopbackHost(host) {
+		return "", fmt.Errorf("refusing non-local API bind %q; set ALLOW_NONLOCAL_BIND=1 to override", bind)
+	}
+
+	if host == "" {
+		return net.JoinHostPort("127.0.0.1", portStr), nil
+	}
+
 	return bind, nil
+}
+
+func registerLegacyReadRoutes(mux *http.ServeMux, readMux *http.ServeMux) {
+	legacyReadPaths := []string{
+		"/health",
+		"/version",
+		"/agent/health",
+		"/tools",
+		"/tools/",
+		"/ports",
+		"/metrics",
+		"/audit",
+		"/port-events",
+	}
+
+	for _, legacyPath := range legacyReadPaths {
+		mux.Handle(legacyPath, readMux)
+	}
+}
+
+func registerWriteRoutes(mux *http.ServeMux, cfg securityConfig, audit *auditLog, agentClient *http.Client) {
+	writeMux := http.NewServeMux()
+	writeMux.HandleFunc("/tools/", func(w http.ResponseWriter, r *http.Request) {
+		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/tools/"), "/")
+		if len(parts) != 2 {
+			http.NotFound(w, r)
+			return
+		}
+		toolID := parts[0]
+		if !isValidToolID(toolID) {
+			http.Error(w, "tool not found", http.StatusNotFound)
+			return
+		}
+		action := parts[1]
+		switch action {
+		case "install":
+			handleToolInstall(w, r, audit, agentClient, toolID)
+		case "uninstall":
+			handleToolUninstall(w, r, audit, agentClient, toolID)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+
+	mux.Handle("/v1/write/", writeAuthMiddleware(cfg, http.StripPrefix("/v1/write", writeMux)))
+}
+
+func isLoopbackHost(host string) bool {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return true
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func allowNonLocalBind() bool {
+	return strings.TrimSpace(os.Getenv("ALLOW_NONLOCAL_BIND")) == "1"
+}
+
+func isValidToolID(toolID string) bool {
+	if toolID == "" || strings.Contains(toolID, "..") || filepath.IsAbs(toolID) {
+		return false
+	}
+	for _, c := range toolID {
+		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func writeAuthMiddleware(cfg securityConfig, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if !cfg.WriteEnabled {
+			w.WriteHeader(http.StatusForbidden)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "write_disabled"})
+			return
+		}
+
+		auth := strings.TrimSpace(r.Header.Get("Authorization"))
+		if !strings.HasPrefix(auth, "Bearer ") {
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+			return
+		}
+		provided := strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
+		if subtle.ConstantTimeCompare([]byte(provided), []byte(cfg.Token)) != 1 {
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func loadSecurityConfig() (securityConfig, error) {
+	writeEnabledRaw := strings.TrimSpace(strings.ToLower(os.Getenv("STACKWARDEN_WRITE_ENABLED")))
+	writeEnabled := writeEnabledRaw == "1" || writeEnabledRaw == "true" || writeEnabledRaw == "yes"
+	token := os.Getenv("STACKWARDEN_TOKEN")
+	if writeEnabled && strings.TrimSpace(token) == "" {
+		return securityConfig{}, errors.New("STACKWARDEN_TOKEN is required when STACKWARDEN_WRITE_ENABLED=true")
+	}
+	agentSocket := strings.TrimSpace(getenv("AGENT_SOCKET", "/run/stackwarden/agent.sock"))
+	if agentSocket == "" {
+		return securityConfig{}, errors.New("AGENT_SOCKET cannot be empty")
+	}
+	return securityConfig{WriteEnabled: writeEnabled, Token: token, AgentSocket: agentSocket}, nil
 }
 
 func splitBindHostPort(bind string) (string, string, error) {

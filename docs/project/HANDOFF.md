@@ -4,14 +4,14 @@ Last updated: 2026-09-04
 
 ## Next concrete engineering task
 
-Execute Issue #20: `Complete and validate StackWarden security baseline` against open PR #18: `Harden local-only baseline; split read/write API and lock down agent`.
+Perform final maintainer review of PR #18, merge it if approved, then execute Issue #21 to add CI and security quality gates.
 
-Do not start Issue #21 or a new remediation/tool feature before Issue #20 is complete.
+Issue #20 implementation and local verification are complete on PR #18. Do not merge automatically and do not broaden PR #18 with Issue #21 work.
 
 ## Read first
 
-- Issue #20, including all acceptance criteria and comments.
 - PR #18 description, current diff, checks, reviews, and unresolved threads.
+- Issue #21, including all acceptance criteria and comments, after PR #18 merges.
 - `AGENTS.md`
 - `PROJECT_MEMORY.md`
 - `docs/project/STATUS.md`
@@ -23,55 +23,24 @@ Do not start Issue #21 or a new remediation/tool feature before Issue #20 is com
 - `.agents/skills/project-memory/SKILL.md`
 - `.agents/skills/security-boundary/SKILL.md`
 
-## Required work
+## Verified PR #18 state
 
-Verify and fix PR #18 so that:
-
-1. `make run-api` succeeds with a loopback-safe default.
-2. Non-loopback API binds remain denied unless explicitly enabled.
-3. UI and API read routes consistently use valid `/v1/read/*` behavior.
-4. Writes remain disabled by default.
-5. Every enabled write route requires server-side Bearer authorization.
-6. The supported UI write flow supplies authorization without persisting or leaking the token.
-7. No legacy or alternate unprotected write route remains.
-8. The agent uses the intended Unix socket with restrictive permissions.
-9. Tool identifiers and managed paths cannot traverse outside their allowed root.
-10. No affected flow uses arbitrary or user-influenced shell-string execution.
-11. Linux runtime behavior and supported Windows observation compilation remain intact.
-12. Tests cover safe defaults, denied paths, malicious input, allowed paths, and compatibility regressions.
-13. `gofmt`, `make test`, and `make build` pass.
-14. All applicable PR review threads are resolved based on verified fixes.
-
-## Manual verification
-
-At minimum, validate on Linux:
-
-```bash
-make run-api
-ss -ltnp | grep ':8080'
-ss -ltnp | grep ':9091' || true
-
-curl -i http://127.0.0.1:8080/v1/read/health
-curl -i http://127.0.0.1:8080/v1/read/version
-curl -i http://127.0.0.1:8080/v1/read/port-events
-
-curl -i -X POST http://127.0.0.1:8080/v1/write/tools/portainer/install
-```
-
-Repeat write-path verification with writes enabled, first without a token, then with an invalid token, and finally with the approved authenticated flow. Do not include real tokens in logs or committed files.
+- `make run-api` starts on `127.0.0.1:8080`; non-loopback binds fail unless `ALLOW_NONLOCAL_BIND=1`.
+- UI reads use `/v1/read/*`; UI writes attach a token held only in page memory.
+- Writes return `403 write_disabled` by default. Enabled install and uninstall routes reject missing/invalid tokens and accept the configured Bearer token.
+- Legacy install/uninstall paths return 404.
+- API-to-agent health succeeds over a Unix socket; the tested socket directory/file modes are `0750`/`0660`.
+- Tool traversal, malformed API/agent/template IDs, and symlinks at managed directories, nested staged paths, or Compose files are rejected.
+- Failed uninstall teardown retains staged configuration for recovery.
+- A repository command review found structured argv execution in the affected flows and no user-influenced shell-string execution.
+- Focused security tests, `make test`, `make build`, Windows cross-builds, and Windows test compilation pass.
+- Linux curl checks pass. The verification environment lacked `ss`; `netstat` confirmed the API on `127.0.0.1:8080` and no `:9091` agent TCP listener.
 
 ## Completion conditions
 
-The task is complete when:
+1. A maintainer confirms PR #18's final diff and resolved review threads, then merges it.
+2. Issue #21 adds automated Go formatting, test, build, Windows compilation, and appropriate security checks.
+3. Project memory is updated to describe the security baseline as merged `main` behavior.
+4. No remediation, persistence, or unrelated product work is bundled into Issue #21.
 
-- Every Issue #20 acceptance criterion is verified.
-- Required fixes and tests are committed to PR #18.
-- `make test` and `make build` pass.
-- Security and compatibility findings are documented.
-- `STATUS.md`, `RISKS.md`, `DECISIONS.md`, and this handoff are updated where facts changed.
-- PR #18 is ready to merge or clearly blocked with concrete reasons.
-- No unrelated product scope is introduced.
-
-## After PR #18
-
-Proceed to Issue #21 for GitHub Actions CI and security quality gates. After CI is established, resolve D-012 through a dedicated architecture decision for durable inventory, snapshots, drift, and audit storage before implementing a database.
+After CI is established, resolve D-012 through a dedicated architecture decision for durable inventory, snapshots, drift, and audit storage before implementing a database.

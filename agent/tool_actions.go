@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,6 +21,10 @@ func toolActionHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	toolID := parts[0]
+	if !isValidToolID(toolID) {
+		http.Error(w, "tool not found", http.StatusNotFound)
+		return
+	}
 	action := parts[1]
 
 	switch action {
@@ -32,6 +37,19 @@ func toolActionHandler(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+func isValidToolID(toolID string) bool {
+	if toolID == "" || strings.Contains(toolID, "..") || filepath.IsAbs(toolID) {
+		return false
+	}
+	for _, c := range toolID {
+		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func handleToolStatus(w http.ResponseWriter, r *http.Request, toolID string) {

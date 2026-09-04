@@ -19,7 +19,7 @@
       table { width: 100%; border-collapse: collapse; margin-top: 10px; }
       th, td { border: 1px solid #e2e2e2; padding: 8px; text-align: left; font-size: 14px; }
       th { background: #f9f9f9; }
-      input[type="search"] { padding: 8px 10px; border-radius: 8px; border: 1px solid #ccc; width: 240px; }
+      input[type="search"], input[type="password"] { padding: 8px 10px; border-radius: 8px; border: 1px solid #ccc; width: 240px; }
       .muted { color: #666; font-size: 14px; }
       .error { color: #c53030; margin-top: 8px; }
       .summary { display: flex; gap: 12px; flex-wrap: wrap; font-size: 14px; margin: 6px 0 10px; }
@@ -158,6 +158,11 @@
         <button id="toolsRefresh">Refresh Tools</button>
       </div>
       <p class="muted" style="margin-top:6px;">Install tools directly on the server (agent-side). Downloads are available as an optional secondary action.</p>
+      <div style="display:flex; gap: 10px; align-items:center; flex-wrap: wrap; margin: 10px 0;">
+        <input id="writeToken" type="password" autocomplete="off" placeholder="Write token" />
+        <button id="clearWriteToken">Clear Token</button>
+        <span id="writeTokenState" class="muted">No write token set</span>
+      </div>
       <div id="toolsError" class="error" style="display:none;"></div>
       <div id="toolsList"></div>
     </div>
@@ -171,18 +176,18 @@
       <div id="aboutDetails" class="muted">Loading version...</div>
       <h4 style="margin-top:12px;">Endpoints</h4>
       <ul>
-        <li><a href="/health"><code>GET /health</code></a></li>
-        <li><a href="/agent/health"><code>GET /agent/health</code></a></li>
-        <li><a href="/version"><code>GET /version</code></a></li>
-        <li><a href="/metrics"><code>GET /metrics</code></a></li>
-        <li><a href="/ports"><code>GET /ports</code></a></li>
-        <li><a href="/port-events"><code>GET /port-events</code></a></li>
-        <li><a href="/audit"><code>GET /audit</code></a></li>
-        <li><a href="/tools"><code>GET /tools</code></a></li>
-        <li><code>POST /tools/&lt;id&gt;/install</code></li>
-        <li><code>GET /tools/&lt;id&gt;/status</code></li>
-        <li><code>POST /tools/&lt;id&gt;/uninstall</code></li>
-        <li><a href="/tools/portainer/bundle"><code>GET /tools/&lt;id&gt;/bundle</code></a></li>
+        <li><a href="/v1/read/health"><code>GET /v1/read/health</code></a></li>
+        <li><a href="/v1/read/agent/health"><code>GET /v1/read/agent/health</code></a></li>
+        <li><a href="/v1/read/version"><code>GET /v1/read/version</code></a></li>
+        <li><a href="/v1/read/metrics"><code>GET /v1/read/metrics</code></a></li>
+        <li><a href="/v1/read/ports"><code>GET /v1/read/ports</code></a></li>
+        <li><a href="/v1/read/port-events"><code>GET /v1/read/port-events</code></a></li>
+        <li><a href="/v1/read/audit"><code>GET /v1/read/audit</code></a></li>
+        <li><a href="/v1/read/tools"><code>GET /v1/read/tools</code></a></li>
+        <li><code>POST /v1/write/tools/&lt;id&gt;/install</code></li>
+        <li><code>GET /v1/read/tools/&lt;id&gt;/status</code></li>
+        <li><code>POST /v1/write/tools/&lt;id&gt;/uninstall</code></li>
+        <li><a href="/v1/read/tools/portainer/bundle"><code>GET /v1/read/tools/&lt;id&gt;/bundle</code></a></li>
       </ul>
     </div>
 
@@ -352,7 +357,7 @@
                     <button data-install="${tool.id}" onclick="installTool('${tool.id}')" ${buttonDisabled}>${buttonLabel}</button>
                     <button onclick="refreshToolStatus('${tool.id}')" ${statusState.loading ? "disabled" : ""}>Check status</button>
                     <button onclick="uninstallTool('${tool.id}')" ${uninstallState.loading || installState.loading ? "disabled" : ""}>Uninstall</button>
-                    <a class="muted" href="/tools/${tool.id}/bundle" style="font-size:13px; text-align:right;">Download to my PC</a>
+                    <a class="muted" href="/v1/read/tools/${tool.id}/bundle" style="font-size:13px; text-align:right;">Download to my PC</a>
                   </div>
                 </div>
               </div>
@@ -420,6 +425,7 @@
         toolInstalls: {},
         toolUninstalls: {},
         toolStatuses: {},
+        writeToken: "",
         metrics: null,
         metricsUpdated: "",
         metricsLoading: false,
@@ -432,6 +438,34 @@
         if (!button) return;
         button.disabled = isLoading;
         button.textContent = isLoading ? "Loading..." : label;
+      }
+
+      function updateWriteTokenState() {
+        const stateEl = document.getElementById("writeTokenState");
+        if (!stateEl) return;
+        stateEl.textContent = state.writeToken ? "Write token set for this page session" : "No write token set";
+      }
+
+      function writeFetchOptions() {
+        const headers = {};
+        if (state.writeToken) {
+          headers.Authorization = `Bearer ${state.writeToken}`;
+        }
+        return { method: "POST", headers };
+      }
+
+      function clearWriteToken() {
+        state.writeToken = "";
+        const input = document.getElementById("writeToken");
+        if (input) input.value = "";
+        updateWriteTokenState();
+      }
+
+      function handleWriteAuthFailure(response) {
+        if (response && response.status === 401) {
+          clearWriteToken();
+          setToolsError("Write authorization failed. Enter the configured token and retry.");
+        }
       }
 
       function formatPercent(value) {
@@ -506,7 +540,7 @@
 
       async function refreshStatus() {
         try {
-          const r = await fetch("/health");
+          const r = await fetch("/v1/read/health");
           const j = await r.json();
           setBadge(document.getElementById("apiBadge"), true, "OK");
           document.getElementById("apiText").textContent = j.service + " / " + j.status;
@@ -516,7 +550,7 @@
         }
 
         try {
-          const r = await fetch("/agent/health");
+          const r = await fetch("/v1/read/agent/health");
           const j = await r.json();
           if (j.ok) {
             setBadge(document.getElementById("agentBadge"), true, "OK");
@@ -582,7 +616,7 @@
         document.getElementById("metricsNotes").textContent = "";
 
         try {
-          const response = await fetch("/metrics");
+          const response = await fetch("/v1/read/metrics");
           const data = await response.json();
           const normalized = normalizeMetricsResponse(data);
           if (!response.ok || !normalized.ok) {
@@ -610,7 +644,7 @@
         setButtonLoading(document.getElementById("toolsRefresh"), true, "Refresh Tools");
         document.getElementById("toolsList").innerHTML = '<div class="muted">Loading...</div>';
         try {
-          const response = await fetch("/tools");
+          const response = await fetch("/v1/read/tools");
           const data = await response.json();
           if (!response.ok || !Array.isArray(data)) {
             setToolsError("Failed to load tools");
@@ -632,7 +666,7 @@
         state.toolInstalls[toolId] = { loading: true };
         renderTools();
         try {
-          const response = await fetch(`/tools/${toolId}/install`, { method: "POST" });
+          const response = await fetch(`/v1/write/tools/${toolId}/install`, writeFetchOptions());
           let data = null;
           try {
             data = await response.json();
@@ -640,6 +674,7 @@
             data = null;
           }
           const normalized = normalizeInstallResponse(response, data || {});
+          handleWriteAuthFailure(response);
           state.toolInstalls[toolId] = { ...normalized, loading: false };
           if (normalized.ok) {
             await refreshToolStatus(toolId, { silent: true });
@@ -657,7 +692,7 @@
           renderTools();
         }
         try {
-          const response = await fetch(`/tools/${toolId}/status`);
+          const response = await fetch(`/v1/read/tools/${toolId}/status`);
           const data = await response.json();
           const normalized = normalizeToolStatusResponse(response, data);
           if (!normalized.ok) {
@@ -676,7 +711,7 @@
         state.toolUninstalls[toolId] = { loading: true };
         renderTools();
         try {
-          const response = await fetch(`/tools/${toolId}/uninstall`, { method: "POST" });
+          const response = await fetch(`/v1/write/tools/${toolId}/uninstall`, writeFetchOptions());
           let data = null;
           try {
             data = await response.json();
@@ -684,6 +719,7 @@
             data = null;
           }
           const normalized = normalizeUninstallResponse(response, data || {});
+          handleWriteAuthFailure(response);
           state.toolUninstalls[toolId] = { ...normalized, loading: false };
           await refreshToolStatus(toolId, { silent: true });
         } catch (e) {
@@ -739,7 +775,7 @@
         state.versionError = "";
         renderVersion();
         try {
-          const response = await fetch("/version");
+          const response = await fetch("/v1/read/version");
           const data = await response.json();
           if (!response.ok || !data || typeof data !== "object") {
             throw new Error("Failed to load version");
@@ -829,7 +865,7 @@
         lastUpdated.textContent = "";
 
         try {
-          const response = await fetch("/ports");
+          const response = await fetch("/v1/read/ports");
           const data = await response.json();
           const normalized = normalizePortsResponse(data);
           if (!response.ok || !normalized.ok) {
@@ -918,7 +954,7 @@
         }
 
         try {
-          const response = await fetch("/port-events");
+          const response = await fetch("/v1/read/port-events");
           const data = await response.json();
           const normalized = normalizePortEventsResponse(data);
           if (!response.ok || !normalized.ok) {
@@ -1022,7 +1058,7 @@
         document.getElementById("auditMeta").textContent = "";
 
         try {
-          const response = await fetch("/audit");
+          const response = await fetch("/v1/read/audit");
           const data = await response.json();
           const normalized = normalizeAuditResponse(data);
           if (!response.ok || !normalized.ok) {
@@ -1054,6 +1090,11 @@
 
       document.getElementById("portEventsRefresh").addEventListener("click", () => refreshPortEvents({ silent: false }));
       document.getElementById("toolsRefresh").addEventListener("click", refreshTools);
+      document.getElementById("writeToken").addEventListener("input", (e) => {
+        state.writeToken = e.target.value || "";
+        updateWriteTokenState();
+      });
+      document.getElementById("clearWriteToken").addEventListener("click", clearWriteToken);
 
       document.getElementById("portsRefresh").addEventListener("click", refreshPorts);
       document.getElementById("auditRefresh").addEventListener("click", refreshAudit);
@@ -1062,6 +1103,7 @@
       window.addEventListener("hashchange", handleRouteChange);
 
       refreshVersion();
+      updateWriteTokenState();
       handleRouteChange();
     </script>
   </body>

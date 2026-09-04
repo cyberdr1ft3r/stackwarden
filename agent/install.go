@@ -195,7 +195,10 @@ func installDDEVWithAPT(ctx context.Context, toolDir string) installResult {
 		return installResult{OK: false, Message: "failed to prepare apt keyring directory", Output: strings.Join(outputs, "\n---\n"), Path: toolDir}
 	}
 
-	keyDest := filepath.Join(toolDir, "ddev.gpg")
+	keyDest, err := managedChildPath(toolDir, "ddev.gpg")
+	if err != nil {
+		return installResult{OK: false, Message: "invalid ddev key path", Output: err.Error(), Path: toolDir}
+	}
 	if err := downloadFile(ctx, "https://ddev.com/install/ddev.gpg", keyDest); err != nil {
 		return installResult{OK: false, Message: "failed to download ddev gpg key", Output: err.Error(), Path: toolDir}
 	}
@@ -204,9 +207,15 @@ func installDDEVWithAPT(ctx context.Context, toolDir string) installResult {
 		return installResult{OK: false, Message: "failed to install ddev gpg key", Output: strings.Join(outputs, "\n---\n"), Path: toolDir}
 	}
 
-	repoLine := `deb [signed-by=/etc/apt/keyrings/ddev.gpg] https://ddev.com/apt/ stable main`
-	repoCmd := fmt.Sprintf("echo \"%s\" > /etc/apt/sources.list.d/ddev.list", repoLine)
-	if err := run("sh", "-c", repoCmd); err != nil {
+	repoLine := "deb [signed-by=/etc/apt/keyrings/ddev.gpg] https://ddev.com/apt/ stable main\n"
+	repoSrc, err := managedChildPath(toolDir, "ddev.list")
+	if err != nil {
+		return installResult{OK: false, Message: "invalid ddev repository path", Output: err.Error(), Path: toolDir}
+	}
+	if err := os.WriteFile(repoSrc, []byte(repoLine), 0o644); err != nil {
+		return installResult{OK: false, Message: "failed to stage ddev apt repository file", Output: err.Error(), Path: toolDir}
+	}
+	if err := run("install", "-m", "0644", repoSrc, "/etc/apt/sources.list.d/ddev.list"); err != nil {
 		return installResult{OK: false, Message: "failed to add ddev apt repository", Output: strings.Join(outputs, "\n---\n"), Path: toolDir}
 	}
 
@@ -234,7 +243,10 @@ func installDDEVWithDeb(ctx context.Context, toolDir string) installResult {
 	}
 
 	debURL := "https://github.com/ddev/ddev/releases/download/v1.23.4/ddev_linux_amd64.deb"
-	debPath := filepath.Join(toolDir, "ddev_linux_amd64.deb")
+	debPath, err := managedChildPath(toolDir, "ddev_linux_amd64.deb")
+	if err != nil {
+		return installResult{OK: false, Message: "invalid ddev package path", Output: err.Error(), Path: toolDir}
+	}
 
 	if err := downloadFile(ctx, debURL, debPath); err != nil {
 		return installResult{OK: false, Message: "failed to download DDEV installer", Output: err.Error(), Path: toolDir}
@@ -311,11 +323,10 @@ func stageTemplateFiles(tool tools.Tool, destDir string) error {
 		if rel == "" {
 			return nil
 		}
-		if strings.Contains(rel, "..") {
-			return errors.New("invalid template path")
+		target, err := managedChildPath(destDir, filepath.FromSlash(rel))
+		if err != nil {
+			return fmt.Errorf("invalid template path: %w", err)
 		}
-
-		target := filepath.Join(destDir, rel)
 		if d.IsDir() {
 			return os.MkdirAll(target, 0o755)
 		}
@@ -339,14 +350,71 @@ func stageTemplateFiles(tool tools.Tool, destDir string) error {
 }
 
 func ensureToolDir(toolID string) (string, error) {
-	if strings.TrimSpace(toolID) == "" {
-		return "", errors.New("tool id is required")
+	toolDir, err := managedToolDir(toolID)
+	if err != nil {
+		return "", err
 	}
-	toolDir := filepath.Join(toolsBaseDir, toolID)
 	if err := os.MkdirAll(toolDir, 0o755); err != nil {
 		return toolDir, err
 	}
 	return toolDir, nil
+}
+
+func managedToolDir(toolID string) (string, error) {
+	if !isValidToolID(toolID) {
+		return "", errors.New("invalid tool id")
+	}
+	toolDir := filepath.Join(toolsBaseDir, toolID)
+	cleanBase := filepath.Clean(toolsBaseDir)
+	cleanTarget := filepath.Clean(toolDir)
+	rel, err := filepath.Rel(cleanBase, cleanTarget)
+	if err != nil {
+		return "", err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", errors.New("invalid tool path")
+	}
+	if info, err := os.Lstat(toolDir); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", errors.New("managed tool directory cannot be a symlink")
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	return toolDir, nil
+}
+
+func managedChildPath(baseDir, relativePath string) (string, error) {
+	if relativePath == "" || filepath.IsAbs(relativePath) {
+		return "", errors.New("invalid managed relative path")
+	}
+
+	cleanBase := filepath.Clean(baseDir)
+	target := filepath.Join(cleanBase, filepath.Clean(relativePath))
+	rel, err := filepath.Rel(cleanBase, target)
+	if err != nil {
+		return "", err
+	}
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", errors.New("managed path escapes base directory")
+	}
+
+	current := cleanBase
+	for _, component := range strings.Split(rel, string(filepath.Separator)) {
+		current = filepath.Join(current, component)
+		info, err := os.Lstat(current)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", errors.New("managed path cannot contain symlinks")
+		}
+	}
+
+	return target, nil
 }
 
 func runCommand(ctx context.Context, dir, name string, args ...string) (string, error) {

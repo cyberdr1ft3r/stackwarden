@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -61,7 +60,11 @@ func collectToolStatus(ctx context.Context, tool tools.Tool, runner Runner) Tool
 		CheckedAt:   checkedAt,
 	}
 
-	toolDir := filepath.Join(toolsBaseDir, tool.ID)
+	toolDir, err := managedToolDir(tool.ID)
+	if err != nil {
+		status.Errors = append(status.Errors, err.Error())
+		return status
+	}
 	status.Staged = dirExists(toolDir)
 
 	switch tool.InstallKind {
@@ -86,7 +89,12 @@ func uninstallTool(ctx context.Context, tool tools.Tool, runner Runner) uninstal
 	var outputs []string
 	var warnings []string
 
-	toolDir := filepath.Join(toolsBaseDir, tool.ID)
+	toolDir, err := managedToolDir(tool.ID)
+	if err != nil {
+		result.Uninstalled = false
+		result.Warnings = append(result.Warnings, err.Error())
+		return result
+	}
 
 	switch tool.InstallKind {
 	case tools.InstallKindCompose:
@@ -110,12 +118,16 @@ func uninstallTool(ctx context.Context, tool tools.Tool, runner Runner) uninstal
 		result.Uninstalled = false
 	}
 
-	if err := os.RemoveAll(toolDir); err != nil {
-		warnings = append(warnings, fmt.Sprintf("failed to remove staged dir: %v", err))
-		result.RemovedStagedDir = false
-		result.Uninstalled = false
+	if result.Uninstalled {
+		if err := os.RemoveAll(toolDir); err != nil {
+			warnings = append(warnings, fmt.Sprintf("failed to remove staged dir: %v", err))
+			result.RemovedStagedDir = false
+			result.Uninstalled = false
+		} else {
+			result.RemovedStagedDir = true
+		}
 	} else {
-		result.RemovedStagedDir = true
+		warnings = append(warnings, "staged directory retained because uninstall did not complete")
 	}
 
 	result.Output = truncateOutput(strings.Join(outputs, "\n---\n"))
@@ -180,7 +192,7 @@ func linuxCLIStatus(ctx context.Context, tool tools.Tool, runner Runner, status 
 			}
 		}
 	} else if spec.Binary != "" {
-		cmd := []string{"sh", "-c", "command -v " + spec.Binary}
+		cmd := []string{"which", spec.Binary}
 		stdout, _, code, err := runner.Run(ctx, cmd, "")
 		if err == nil && code == 0 {
 			installed = true
@@ -282,9 +294,12 @@ func findComposeFile(toolDir string) (string, bool) {
 	}
 
 	for _, name := range candidates {
-		path := filepath.Join(toolDir, name)
-		if info, err := os.Stat(path); err == nil && !info.IsDir() {
-			return path, true
+		composePath, err := managedChildPath(toolDir, name)
+		if err != nil {
+			continue
+		}
+		if info, err := os.Lstat(composePath); err == nil && info.Mode().IsRegular() {
+			return composePath, true
 		}
 	}
 

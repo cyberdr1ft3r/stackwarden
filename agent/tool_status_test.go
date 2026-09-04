@@ -116,7 +116,7 @@ func TestLinuxCLIStatusVersion(t *testing.T) {
 
 	runner := &fakeRunner{
 		responses: map[string]runResponse{
-			"sh -c command -v ddev": {
+			"which ddev": {
 				stdout: "/usr/bin/ddev\n",
 				code:   0,
 			},
@@ -152,5 +152,111 @@ func TestBundleOnlyStatus(t *testing.T) {
 	status := collectToolStatus(context.Background(), tool, &fakeRunner{responses: map[string]runResponse{}})
 	if !status.Staged || !status.Installed {
 		t.Fatalf("expected staged/installed true")
+	}
+}
+
+func TestEnsureToolDirRejectsMalformedToolIDs(t *testing.T) {
+	restoreDir := withTempToolsDir(t)
+	defer restoreDir()
+
+	for _, toolID := range []string{"", "../portainer", "portainer/../ddev", "/tmp/portainer", "Portainer", "portainer.d"} {
+		if _, err := ensureToolDir(toolID); err == nil {
+			t.Fatalf("expected %q to be rejected", toolID)
+		}
+	}
+}
+
+func TestEnsureToolDirAcceptsValidToolID(t *testing.T) {
+	restoreDir := withTempToolsDir(t)
+	defer restoreDir()
+
+	dir, err := ensureToolDir("portainer")
+	if err != nil {
+		t.Fatalf("expected valid tool id to be accepted: %v", err)
+	}
+	if want := filepath.Join(toolsBaseDir, "portainer"); dir != want {
+		t.Fatalf("expected %q, got %q", want, dir)
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		t.Fatalf("expected tool directory to be created: %v", err)
+	}
+}
+
+func TestEnsureToolDirRejectsSymlinkEscape(t *testing.T) {
+	restoreDir := withTempToolsDir(t)
+	defer restoreDir()
+
+	outside := t.TempDir()
+	toolDir := filepath.Join(toolsBaseDir, "portainer")
+	if err := os.Symlink(outside, toolDir); err != nil {
+		t.Fatalf("failed to create tool directory symlink: %v", err)
+	}
+
+	if _, err := ensureToolDir("portainer"); err == nil {
+		t.Fatal("expected symlinked tool directory to be rejected")
+	}
+
+	sentinel := filepath.Join(outside, "sentinel")
+	if err := os.WriteFile(sentinel, []byte("keep"), 0o600); err != nil {
+		t.Fatalf("failed to create outside sentinel: %v", err)
+	}
+	result := uninstallTool(context.Background(), tools.Tool{ID: "portainer", InstallKind: tools.InstallKindBundleOnly}, &fakeRunner{responses: map[string]runResponse{}})
+	if result.Uninstalled {
+		t.Fatal("expected uninstall through symlink to fail")
+	}
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Fatalf("outside sentinel must remain untouched: %v", err)
+	}
+}
+
+func TestStageTemplateFilesRejectsNestedSymlinkEscape(t *testing.T) {
+	restoreDir := withTempToolsDir(t)
+	defer restoreDir()
+
+	tool, err := tools.Find("portainer")
+	if err != nil {
+		t.Fatalf("find tool: %v", err)
+	}
+	toolDir, err := ensureToolDir(tool.ID)
+	if err != nil {
+		t.Fatalf("prepare tool dir: %v", err)
+	}
+
+	outside := filepath.Join(t.TempDir(), "outside-compose.yml")
+	if err := os.WriteFile(outside, []byte("sentinel"), 0o600); err != nil {
+		t.Fatalf("write outside sentinel: %v", err)
+	}
+	composePath := filepath.Join(toolDir, "docker-compose.yml")
+	if err := os.Symlink(outside, composePath); err != nil {
+		t.Fatalf("create nested symlink: %v", err)
+	}
+
+	if err := stageTemplateFiles(tool, toolDir); err == nil {
+		t.Fatal("expected nested symlink to be rejected")
+	}
+	data, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatalf("read outside sentinel: %v", err)
+	}
+	if string(data) != "sentinel" {
+		t.Fatalf("outside file was modified: %q", data)
+	}
+}
+
+func TestUninstallRejectsInvalidToolIDBeforeRemoveAll(t *testing.T) {
+	restoreDir := withTempToolsDir(t)
+	defer restoreDir()
+
+	sentinel := filepath.Join(toolsBaseDir, "sentinel")
+	if err := os.MkdirAll(sentinel, 0o755); err != nil {
+		t.Fatalf("failed to create sentinel: %v", err)
+	}
+
+	result := uninstallTool(context.Background(), tools.Tool{ID: "../sentinel", InstallKind: tools.InstallKindBundleOnly}, &fakeRunner{responses: map[string]runResponse{}})
+	if result.Uninstalled {
+		t.Fatalf("expected invalid uninstall to fail")
+	}
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Fatalf("sentinel directory should not be removed: %v", err)
 	}
 }

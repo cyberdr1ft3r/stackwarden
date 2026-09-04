@@ -1,6 +1,6 @@
 # StackWarden Decisions
 
-Last updated: 2026-08-08
+Last updated: 2026-09-04
 
 Accepted decisions are append-oriented. Do not rewrite history to make a later decision look original; supersede older decisions explicitly.
 
@@ -79,3 +79,13 @@ Open PRs may describe intended direction but are not treated as current product 
 Status: Open
 
 Current audit and port-event state is in memory. The future persistence model for host snapshots, drift history, audit history, policies, and potentially multi-host state has not yet been selected. Do not introduce a database or storage engine without a scoped architecture decision.
+
+## D-013 - Security-baseline interface
+
+Status: Accepted by Issue #20; implemented in unmerged PR #18
+
+The API binds to loopback by default, and a non-loopback bind requires explicit opt-in. API-to-agent traffic uses a local Unix socket with restrictive directory/socket permissions.
+
+Read operations use `/v1/read/*`. State-changing operations use `/v1/write/*`, remain disabled by default, and require server-side Bearer authorization when enabled. The static UI may hold the write token only in page memory and must not persist or log it.
+
+Legacy compatibility may expose read-only aliases, but no legacy or alternate write endpoint may bypass the centralized write gate.

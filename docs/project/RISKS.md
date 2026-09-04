@@ -1,6 +1,6 @@
 # StackWarden Risk Register
 
-Last updated: 2026-08-08
+Last updated: 2026-09-04
 
 ## R-001 - Privileged agent compromise
 
@@ -19,7 +19,7 @@ Controls/direction:
 ## R-002 - Public management exposure
 
 Severity: High
-Status: Active on current `main`; mitigation proposed by PR #18
+Status: Active on current `main`; mitigation implemented and verified in PR #18
 
 Current `main` documentation/configuration allows broad API binding. An Internet-reachable management API increases attack surface substantially.
 
@@ -31,9 +31,11 @@ Direction:
 ## R-003 - Unauthenticated or insufficiently gated writes
 
 Severity: Critical
-Status: Active on current `main`; mitigation proposed by PR #18
+Status: Active on current `main`; mitigation implemented and verified in PR #18
 
 Tool installation/uninstallation changes host state and may invoke privileged package/container operations. Write capabilities require explicit gating and authentication/authorization.
+
+PR #18 keeps writes disabled by default and applies centralized Bearer authorization to every supported `/v1/write/*` action. Route-level tests cover disabled, missing-token, invalid-token, allowed, malicious-input, and legacy-path cases.
 
 ## R-004 - Shell injection / unsafe execution composition
 
@@ -42,12 +44,16 @@ Status: Must remain continuously reviewed
 
 Any free-form shell composition influenced by API/user input can become command execution. Avoid `sh -c` patterns and pass validated argv directly wherever possible.
 
+PR #18's affected install/status/uninstall flows use structured argv. This remains a continuous review requirement for catalog additions.
+
 ## R-005 - Path traversal / managed-directory escape
 
 Severity: High
 Status: Must remain continuously reviewed
 
 Tool IDs or future resource identifiers must not escape `/var/lib/stackwarden/...` or other managed roots. Validate allowed characters and verify resolved paths remain under expected bases.
+
+PR #18 validates API, agent, and embedded-template tool IDs; checks lexical containment; rejects symlinks at managed tool directories, nested staged-file paths, and Compose-file paths; and includes traversal/symlink regression tests. Managed-path behavior must remain under review as new artifact types are added.
 
 ## R-006 - Volatile operational history
 
@@ -90,3 +96,12 @@ Severity: Medium
 Status: Open
 
 Systemd/service users, filesystem ownership, socket group ownership, upgrade/rollback, log retention, and reverse-proxy deployment are not yet fully codified as a reproducible production model.
+
+## R-011 - Failed teardown loses recovery configuration
+
+Severity: High
+Status: Mitigated in PR #18
+
+Removing a staged tool directory after a failed Compose or package uninstall can leave host resources active while deleting the configuration needed to retry or diagnose teardown.
+
+PR #18 now retains the staged directory whenever uninstall does not complete and tests the failed-Compose recovery path. Future uninstall actions must preserve this safe failure mode.
