@@ -28,7 +28,7 @@ Do not begin implementation from this architecture branch and do not add persist
 1. Add the API storage/repository boundary and select a reviewed pure-Go SQLite driver.
 2. Add secure path/bootstrap handling and embedded checksum-verified migrations.
 3. Implement the host, revision, snapshot, listener, service, tool, drift, and audit schema.
-4. Persist complete normalized snapshots atomically and deduplicate revisions.
+4. Add the single-flight API snapshot scheduler, persist complete normalized snapshots atomically, and deduplicate revisions without coupling history mutation to live read requests.
 5. Add bounded history queries, retention/pruning, backup/restore validation, corruption refusal, and safe shutdown.
 6. Integrate handlers without changing route authorization or response compatibility.
 

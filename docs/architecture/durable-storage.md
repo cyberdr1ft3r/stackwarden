@@ -84,6 +84,17 @@ UI
 - The repository interface supports transactions and always takes a host ID for host-scoped methods.
 - Existing `/v1/read/*` and `/v1/write/*` authorization boundaries remain unchanged.
 
+## Collection and presentation semantics
+
+- The API collector captures one complete snapshot after both storage and the agent become healthy, then every five minutes by default.
+- `STACKWARDEN_SNAPSHOT_INTERVAL` may configure a duration from one minute through 24 hours. Invalid or disabled values fail startup; the initial implementation does not allow unbounded/disabled durable capture.
+- Collection is single-flight. A slow collection is not overlapped, and no database transaction is held while calling the agent.
+- `GET /v1/read/ports` remains a live agent-backed compatibility endpoint and no longer creates a snapshot as a side effect.
+- `GET /v1/read/audit` and `/v1/read/port-events` retain their response compatibility while reading bounded durable history.
+- New read-only history endpoints may expose latest snapshot, snapshot list/detail, and typed drift history. They must use bounded pagination and remain behind the API service layer.
+- The first implementation adds no browser/API operation for forcing collection, changing retention, deleting history, or exporting the database.
+- Existing in-memory history is not migrated. The first complete collection after upgrade establishes the durable baseline and emits no synthetic “opened” events.
+
 ## Proposed entity model
 
 ```text
@@ -200,6 +211,8 @@ Primary key: `(revision_id, tool_id)`. Status command output, paths, and errors 
 | `detected_at_ms INTEGER NOT NULL` | Detection time |
 
 Events are self-describing enough to survive snapshot pruning. Free-form command output is prohibited.
+
+`details_json` uses a kind-specific schema, rejects unknown fields, and is capped at 4 KiB. Human-readable descriptions are rendered from structured values rather than stored command/error text.
 
 ### `audit_events`
 
@@ -333,8 +346,9 @@ Backup scheduling, remote backup upload, encryption/key management, and point-in
 - Enforce the configured absolute database path, ownership, `0700` directory mode, and `0600` database-related file modes without following symlinks.
 - Bootstrap one opaque local managed-host UUID without collecting a hostname or machine ID.
 - Persist complete listener/service/tool inventory snapshots and survive API restart.
+- Capture snapshots in a single-flight API scheduler with the documented interval bounds; live `/v1/read/ports` requests must not mutate history.
 - Deduplicate normalized inventory revisions while preserving each snapshot occurrence.
-- Atomically create snapshots and deterministic drift events; the first snapshot creates no drift.
+- Atomically create snapshots and deterministic drift events; the first snapshot creates no drift, and opened/closed/exposure events retain current `diffPorts` semantics.
 - Persist structured administrative request/outcome audit events, fail closed before mutation if the request event cannot be committed, and never persist secrets or raw output.
 - Provide bounded latest/history queries without changing existing route authorization or response compatibility.
 - Apply the documented default retention and orphan cleanup while preserving the latest two snapshots.
