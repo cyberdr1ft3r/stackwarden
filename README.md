@@ -2,6 +2,8 @@
 
 Minimal dashboard (HTML) + Go API + Go Agent for DevOps, security, and server visibility.
 
+Requires Go 1.25.13 or newer.
+
 ## Quickstart
 1) Clone and enter the repo:
 ```bash
@@ -56,7 +58,7 @@ go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
 make vulncheck
 ```
 
-`windows-compile` cross-compiles the supported Windows agent/API binaries and test packages without trying to execute Windows binaries on Linux. `govulncheck` v1.7.0 requires Go 1.25 or newer to build; it can still analyze StackWarden's Go 1.22 modules.
+`windows-compile` cross-compiles the supported Windows agent/API binaries and test packages without trying to execute Windows binaries on Linux. CI uses the patched Go 1.25.13 toolchain consistently; older Go 1.22 toolchains contain reachable standard-library vulnerabilities reported by current `govulncheck`.
 
 ## Features
 - Health checks (API + Agent)

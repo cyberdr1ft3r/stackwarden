@@ -97,3 +97,11 @@ Status: Accepted by Issue #21
 Pull requests and pushes to `main` must run stable, separately named checks for Go formatting, `go vet` across every maintained module, tests, Linux builds, compile-only Windows compatibility, and `govulncheck`.
 
 Workflows use read-only repository permissions, require no production secrets, avoid privileged/deployment behavior, and pin trusted actions to immutable commits. Branch protection must require the stable checks after the workflow is merged.
+
+## D-015 - Patched Go toolchain baseline
+
+Status: Accepted by Issue #21
+
+StackWarden requires Go 1.25.13 or newer. CI pins Go 1.25.13 so formatting, analysis, tests, builds, Windows compilation, and vulnerability results are reproducible.
+
+Go 1.22 is no longer a supported build baseline because current `govulncheck` identifies reachable standard-library vulnerabilities that are fixed only in maintained Go releases.

@@ -27,6 +27,7 @@ Issue #20 / PR #18 is merged on `main` as `005aa04d4755ab76a4c0ae1ecd963469e5235
 - Pull requests and pushes to `main` trigger checks with stable names for formatting, static analysis, tests, builds, Windows compilation, and vulnerability scanning.
 - Workflows use read-only permissions, immutable action pins, no production secrets, and no deployment/publishing behavior.
 - Equivalent local commands are documented and pass.
+- All checks run with the supported patched Go 1.25.13 baseline.
 - Representative malformed Go formatting is proven to fail the formatting gate.
 - The new pull request's actual GitHub Actions checks pass.
 - A maintainer configures every stable check as required for `main` and requires branches to be current before merge.

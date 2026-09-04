@@ -128,7 +128,7 @@ See `docs/threat-model.md` for the detailed threat model.
 
 ## Current Technical Direction
 
-- Go for API/agent/shared packages.
+- Go 1.25.13 or newer for API/agent/shared packages; CI pins the minimum patched toolchain.
 - Framework-free static HTML/JS UI unless an approved decision changes this.
 - Small self-contained deployment footprint.
 - Shared catalog metadata drives supported tool operations.

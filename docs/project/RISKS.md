@@ -112,3 +112,10 @@ Severity: High
 Status: Active until Issue #21 is merged and branch protection is configured
 
 A workflow alone does not prevent merging code that fails security or compatibility checks. After Issue #21 establishes stable check names, a maintainer must require every CI check in the `main` branch protection rule or repository ruleset and require branches to be up to date before merge.
+
+## R-013 - Unsupported Go toolchain vulnerabilities
+
+Severity: High
+Status: Mitigated in the Issue #21 branch
+
+Go 1.22 is end-of-life and current vulnerability data identifies reachable standard-library vulnerabilities in the prior 1.22.2 development toolchain. StackWarden now requires and CI pins Go 1.25.13, and the vulnerability gate fails when reachable findings are present.
