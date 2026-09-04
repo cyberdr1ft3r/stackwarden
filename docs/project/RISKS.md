@@ -44,7 +44,7 @@ Status: Must remain continuously reviewed
 
 Any free-form shell composition influenced by API/user input can become command execution. Avoid `sh -c` patterns and pass validated argv directly wherever possible.
 
-PR #18's affected install/status/uninstall flows use structured argv. This remains a continuous review requirement for catalog additions.
+Current `main` install/status/uninstall flows use structured argv. This remains a continuous review requirement for catalog additions.
 
 ## R-005 - Path traversal / managed-directory escape
 
@@ -53,16 +53,16 @@ Status: Must remain continuously reviewed
 
 Tool IDs or future resource identifiers must not escape `/var/lib/stackwarden/...` or other managed roots. Validate allowed characters and verify resolved paths remain under expected bases.
 
-PR #18 validates API, agent, and embedded-template tool IDs; checks lexical containment; rejects symlinks at managed tool directories, nested staged-file paths, and Compose-file paths; and includes traversal/symlink regression tests. Managed-path behavior must remain under review as new artifact types are added.
+Current `main` validates API, agent, and embedded-template tool IDs; checks lexical containment; rejects symlinks at managed tool directories, nested staged-file paths, and Compose-file paths; and includes traversal/symlink regression tests. Managed-path behavior must remain under review as new artifact types are added.
 
 ## R-006 - Volatile operational history
 
 Severity: Medium
-Status: Active
+Status: Active; architecture accepted, implementation pending Issue #23
 
 Audit events and port-change snapshots are currently in memory. Restarting the API loses history, limiting forensic usefulness and durable drift analysis.
 
-Next step: make persistence an explicit architecture decision before implementation.
+Mitigation is defined by D-012; volatility remains until Issue #23 is implemented.
 
 ## R-007 - Security model drift as features expand
 
@@ -109,13 +109,31 @@ Current `main` retains the staged directory whenever uninstall does not complete
 ## R-012 - CI checks exist but are not enforced
 
 Severity: High
-Status: Active until Issue #21 is merged and branch protection is configured
+Status: Mitigated on current `main`
 
-A workflow alone does not prevent merging code that fails security or compatibility checks. After Issue #21 establishes stable check names, a maintainer must require every CI check in the `main` branch protection rule or repository ruleset and require branches to be up to date before merge.
+The `Protect main` ruleset requires all six CI checks. Workflow and ruleset changes remain security-sensitive repository administration.
 
 ## R-013 - Unsupported Go toolchain vulnerabilities
 
 Severity: High
-Status: Mitigated in the Issue #21 branch
+Status: Mitigated on current `main`
 
 Go 1.22 is end-of-life and current vulnerability data identifies reachable standard-library vulnerabilities in the prior 1.22.2 development toolchain. StackWarden now requires and CI pins Go 1.25.13, and the vulnerability gate fails when reachable findings are present.
+
+## R-014 - Durable inventory disclosure or tampering
+
+Severity: High
+Status: Design mitigation accepted; implementation pending Issue #23
+
+Listener, service, tool, drift, and administrative history can reveal host posture or mislead operators if disclosed or modified.
+
+D-012 minimizes collected fields, prohibits secrets/raw output, isolates the database under an API-owned `0700` directory with `0600` files, and requires validated paths, corruption refusal, and equally protected backups. Host/disk compromise remains outside application-level protection; encrypted storage is an operator responsibility.
+
+## R-015 - Database growth, corruption, or unrecoverable migration
+
+Severity: High
+Status: Design mitigation accepted; implementation pending Issue #23
+
+Unbounded history can exhaust disk, while an unsafe migration, WAL copy, or automatic recreation can destroy forensic state.
+
+D-012 defines age and volume ceilings, insert-time audit-cap enforcement, complete request-group pruning, startup/hourly maintenance independent of collection health, bounded maintenance transactions, transactional checksum-verified migrations, online backup, offline restore validation, clean shutdown, and fail-closed corruption handling. These controls require fault-injection and recovery tests before persistence is considered complete.

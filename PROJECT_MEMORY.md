@@ -27,7 +27,7 @@ The project is intentionally more than a generic dashboard. Its value is safe op
 
 ## Current Phase
 
-CI/security quality gates after completion of the security baseline, before durable inventory/snapshot architecture.
+M2 durable inventory and snapshots. D-012 selects the architecture; implementation is tracked by Issue #23.
 
 Current `main` already includes:
 
@@ -47,6 +47,7 @@ Current `main` already includes:
 - `/v1/read/*` and `/v1/write/*` route separation.
 - Writes disabled by default and Bearer authorization for enabled writes.
 - Validated managed tool identifiers/paths and structured command execution.
+- Six mandatory CI checks enforced by the `Protect main` ruleset.
 
 ## Architecture
 
@@ -134,7 +135,8 @@ See `docs/threat-model.md` for the detailed threat model.
 - Shared catalog metadata drives supported tool operations.
 - Root `Makefile` provides common run/test/build workflows.
 - Tests live inside each Go module and should protect parsers, security boundaries, and privileged-action behavior.
-- Persistent state is not yet a settled architecture; do not introduce a database silently.
+- Durable state uses an API-owned, host-scoped SQLite design documented in `docs/architecture/durable-storage.md`; no database is implemented yet.
+- Live metrics, PIDs, raw command output, secrets, environment contents, and unnecessary host fingerprints remain ephemeral.
 
 ## Non-Negotiable Engineering Rules
 

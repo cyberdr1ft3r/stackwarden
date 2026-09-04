@@ -74,11 +74,21 @@ Status: Accepted
 
 Open PRs may describe intended direction but are not treated as current product behavior until merged. Status/memory documents must preserve this distinction.
 
-## D-012 - Persistence architecture remains undecided
+## D-012 - Durable storage architecture
 
-Status: Open
+Status: Accepted on 2026-09-04; implementation tracked by Issue #23
 
-Current audit and port-event state is in memory. The future persistence model for host snapshots, drift history, audit history, policies, and potentially multi-host state has not yet been selected. Do not introduce a database or storage engine without a scoped architecture decision.
+The initial durable store is API-owned SQLite for one local managed host. Schema and repository APIs are host-scoped from version 1 to preserve a migration path to multi-host operation.
+
+Complete snapshots reference deduplicated normalized inventory revisions containing listener, minimally described service, and catalog-tool observations. Drift and structured administrative audit events are durable; live metrics, PIDs, raw command output, secrets, environment contents, and unnecessary host fingerprints remain ephemeral.
+
+SQLite uses embedded forward migrations, WAL with full synchronous durability, serialized writes, bounded retention, secure local filesystem permissions, verified backup/restore, corruption refusal, and no silent in-memory fallback. The agent and UI never access the database directly.
+
+Database triggers enforce that every non-null drift snapshot reference belongs to the event's required host while independent snapshot foreign keys use `ON DELETE SET NULL` for pruning. Administrative audit events use phase checks and partial unique indexes so each request has one requested row and at most one terminal row (`completed` or `failed`, never both).
+
+Durable audit is limited to authorized state-changing and explicit system administrative operations; routine reads and authorization denials remain ephemeral. Audit retention enforces both 90 days and 10,000 bounded request groups database-wide. Startup and hourly maintenance prune audit, drift, snapshots, and orphan revisions independently of agent/snapshot health, with bounded transactions and degraded health reporting on failure.
+
+The complete schema, lifecycle, security controls, tradeoffs, and implementation acceptance criteria are in [`docs/architecture/durable-storage.md`](../architecture/durable-storage.md).
 
 ## D-013 - Security-baseline interface
 
@@ -92,7 +102,7 @@ Legacy compatibility may expose read-only aliases, but no legacy or alternate wr
 
 ## D-014 - Required CI quality gates
 
-Status: Accepted by Issue #21
+Status: Accepted and merged by Issue #21 / PR #22
 
 Pull requests and pushes to `main` must run stable, separately named checks for Go formatting, `go vet` across every maintained module, tests, Linux builds, compile-only Windows compatibility, and `govulncheck`.
 
@@ -100,7 +110,7 @@ Workflows use read-only repository permissions, require no production secrets, a
 
 ## D-015 - Patched Go toolchain baseline
 
-Status: Accepted by Issue #21
+Status: Accepted and merged by Issue #21 / PR #22
 
 StackWarden requires Go 1.25.13 or newer. CI pins Go 1.25.13 so formatting, analysis, tests, builds, Windows compilation, and vulnerability results are reproducible.
 
