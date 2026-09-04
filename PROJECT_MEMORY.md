@@ -1,6 +1,6 @@
 # StackWarden - Project Memory
 
-Last updated: 2026-08-08
+Last updated: 2026-09-04
 
 This is the fastest context-rehydration entry point for humans and coding agents. It records stable product facts, architecture, current direction, and the operating protocol. Detailed design/security documentation lives under `docs/`.
 
@@ -27,7 +27,7 @@ The project is intentionally more than a generic dashboard. Its value is safe op
 
 ## Current Phase
 
-Security-baseline consolidation before expanding the hardening/remediation feature set.
+CI/security quality gates after completion of the security baseline, before durable inventory/snapshot architecture.
 
 Current `main` already includes:
 
@@ -42,8 +42,11 @@ Current `main` already includes:
 - Server-side tool install flow staged under `/var/lib/stackwarden/tools/<id>/`.
 - Tool status and uninstall operations for supported catalog entries.
 - Portainer CE and DDEV catalog entries.
-
-Open PR #18 (`codex/implement-security-baseline-for-stackwarden`) is NOT merged and therefore is not current behavior. It proposes the intended security baseline: loopback-only API by default, Unix-socket API-to-agent transport, read/write route separation, write-disabled-by-default behavior, Bearer authentication for enabled writes, safer tool identifiers/paths, and removal of shell-string execution patterns.
+- Loopback-only API binding by default, with explicit opt-in for non-loopback exposure.
+- Unix-socket API-to-agent transport with restrictive permissions.
+- `/v1/read/*` and `/v1/write/*` route separation.
+- Writes disabled by default and Bearer authorization for enabled writes.
+- Validated managed tool identifiers/paths and structured command execution.
 
 ## Architecture
 
@@ -67,7 +70,7 @@ Stable responsibility split:
 - Agent: local privileged host inspection and narrowly defined host changes.
 - `pkg`: shared Go types/catalog logic that should remain independent from UI concerns.
 
-The desired hardened direction is for API-to-agent communication to stay local and inaccessible as a general network management endpoint.
+API-to-agent communication stays local over a Unix socket and is inaccessible as a general TCP management endpoint.
 
 ## Repository Structure
 
@@ -125,7 +128,7 @@ See `docs/threat-model.md` for the detailed threat model.
 
 ## Current Technical Direction
 
-- Go for API/agent/shared packages.
+- Go 1.25.13 or newer for API/agent/shared packages; CI pins the minimum patched toolchain.
 - Framework-free static HTML/JS UI unless an approved decision changes this.
 - Small self-contained deployment footprint.
 - Shared catalog metadata drives supported tool operations.

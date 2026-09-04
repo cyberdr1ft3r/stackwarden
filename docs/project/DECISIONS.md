@@ -82,10 +82,26 @@ Current audit and port-event state is in memory. The future persistence model fo
 
 ## D-013 - Security-baseline interface
 
-Status: Accepted by Issue #20; implemented in unmerged PR #18
+Status: Accepted and merged in PR #18
 
 The API binds to loopback by default, and a non-loopback bind requires explicit opt-in. API-to-agent traffic uses a local Unix socket with restrictive directory/socket permissions.
 
 Read operations use `/v1/read/*`. State-changing operations use `/v1/write/*`, remain disabled by default, and require server-side Bearer authorization when enabled. The static UI may hold the write token only in page memory and must not persist or log it.
 
 Legacy compatibility may expose read-only aliases, but no legacy or alternate write endpoint may bypass the centralized write gate.
+
+## D-014 - Required CI quality gates
+
+Status: Accepted by Issue #21
+
+Pull requests and pushes to `main` must run stable, separately named checks for Go formatting, `go vet` across every maintained module, tests, Linux builds, compile-only Windows compatibility, and `govulncheck`.
+
+Workflows use read-only repository permissions, require no production secrets, avoid privileged/deployment behavior, and pin trusted actions to immutable commits. Branch protection must require the stable checks after the workflow is merged.
+
+## D-015 - Patched Go toolchain baseline
+
+Status: Accepted by Issue #21
+
+StackWarden requires Go 1.25.13 or newer. CI pins Go 1.25.13 so formatting, analysis, tests, builds, Windows compilation, and vulnerability results are reproducible.
+
+Go 1.22 is no longer a supported build baseline because current `govulncheck` identifies reachable standard-library vulnerabilities that are fixed only in maintained Go releases.

@@ -78,9 +78,9 @@ These are foundations, not the finished product.
 
 ## Near-term direction
 
-The immediate priority is hardening the existing management plane before broadening its power. Open PR #18 proposes the current security-baseline direction but is not merged behavior.
+The management-plane security baseline is merged. The immediate priority is enforcing automated formatting, analysis, test, build, cross-platform compile, and vulnerability checks through Issue #21.
 
-After the security baseline, the project should design durable inventory/snapshot storage, then build a drift model, then exposure classification, and only then broader policy/remediation.
+After CI is established, the project should design durable inventory/snapshot storage, then build a drift model, then exposure classification, and only then broader policy/remediation.
 
 ## Explicit non-goals for now
 

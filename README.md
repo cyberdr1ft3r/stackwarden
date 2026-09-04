@@ -2,6 +2,8 @@
 
 Minimal dashboard (HTML) + Go API + Go Agent for DevOps, security, and server visibility.
 
+Requires Go 1.25.13 or newer.
+
 ## Quickstart
 1) Clone and enter the repo:
 ```bash
@@ -40,6 +42,23 @@ ssh -L 8080:127.0.0.1:8080 user@server
 Useful commands:
 - `make test` — run Go tests across modules
 - `make build` — build binaries into `./bin/`
+
+## CI and local quality checks
+
+GitHub Actions runs the following checks for pull requests and pushes to `main`. Run the same commands locally before pushing:
+
+```bash
+make fmt-check
+make vet
+make test
+make build
+make windows-compile
+
+go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+make vulncheck
+```
+
+`windows-compile` cross-compiles the supported Windows agent/API binaries and test packages without trying to execute Windows binaries on Linux. CI uses the patched Go 1.25.13 toolchain consistently; older Go 1.22 toolchains contain reachable standard-library vulnerabilities reported by current `govulncheck`.
 
 ## Features
 - Health checks (API + Agent)
