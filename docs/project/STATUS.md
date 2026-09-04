@@ -32,8 +32,9 @@ Implemented on `main`:
 ## Active / Pending Work
 
 - Issue #20 and PR #18 are complete and merged on `main`.
-- Issue #21 is implementing pull-request and `main`-push checks for formatting, vet, tests, Linux builds, Windows compilation, and vulnerability analysis.
+- Issue #21 is implemented in draft PR #22 with pull-request and `main`-push checks for formatting, vet, tests, Linux builds, Windows compilation, and vulnerability analysis.
 - Issue #21 raises the supported build baseline from end-of-life Go 1.22 to patched Go 1.25.13 because current vulnerability analysis finds reachable standard-library vulnerabilities under the old toolchain.
+- All six PR checks passed on the restored clean implementation after an intentional formatting defect proved `CI / Formatting` fails closed.
 - Branch protection still requires maintainer configuration after stable check names exist.
 
 ## Current Objective
