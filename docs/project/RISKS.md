@@ -53,7 +53,7 @@ Status: Must remain continuously reviewed
 
 Tool IDs or future resource identifiers must not escape `/var/lib/stackwarden/...` or other managed roots. Validate allowed characters and verify resolved paths remain under expected bases.
 
-PR #18 validates tool IDs, checks lexical containment, rejects symlinked managed tool directories, and includes traversal/symlink regression tests. Nested managed-path behavior must remain under review as new artifact types are added.
+PR #18 validates API, agent, and embedded-template tool IDs; checks lexical containment; rejects symlinks at managed tool directories, nested staged-file paths, and Compose-file paths; and includes traversal/symlink regression tests. Managed-path behavior must remain under review as new artifact types are added.
 
 ## R-006 - Volatile operational history
 
@@ -96,3 +96,12 @@ Severity: Medium
 Status: Open
 
 Systemd/service users, filesystem ownership, socket group ownership, upgrade/rollback, log retention, and reverse-proxy deployment are not yet fully codified as a reproducible production model.
+
+## R-011 - Failed teardown loses recovery configuration
+
+Severity: High
+Status: Mitigated in PR #18
+
+Removing a staged tool directory after a failed Compose or package uninstall can leave host resources active while deleting the configuration needed to retry or diagnose teardown.
+
+PR #18 now retains the staged directory whenever uninstall does not complete and tests the failed-Compose recovery path. Future uninstall actions must preserve this safe failure mode.

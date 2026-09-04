@@ -30,7 +30,8 @@ Issue #20 implementation and local verification are complete on PR #18. Do not m
 - Writes return `403 write_disabled` by default. Enabled install and uninstall routes reject missing/invalid tokens and accept the configured Bearer token.
 - Legacy install/uninstall paths return 404.
 - API-to-agent health succeeds over a Unix socket; the tested socket directory/file modes are `0750`/`0660`.
-- Tool traversal, malformed IDs, and symlinked managed directories are rejected.
+- Tool traversal, malformed API/agent/template IDs, and symlinks at managed directories, nested staged paths, or Compose files are rejected.
+- Failed uninstall teardown retains staged configuration for recovery.
 - A repository command review found structured argv execution in the affected flows and no user-influenced shell-string execution.
 - Focused security tests, `make test`, `make build`, Windows cross-builds, and Windows test compilation pass.
 - Linux curl checks pass. The verification environment lacked `ss`; `netstat` confirmed the API on `127.0.0.1:8080` and no `:9091` agent TCP listener.

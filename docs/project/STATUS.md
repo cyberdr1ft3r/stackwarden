@@ -36,6 +36,7 @@ State as of 2026-09-04:
 - Latest `main`, including PR #19, is merged into the branch.
 - Issue #20 implementation and verification are complete on the branch.
 - `make test`, `make build`, focused security tests, Linux manual API checks, and Windows cross-compilation pass.
+- Follow-up agent review findings were closed by validating embedded template IDs, rejecting nested managed-path/Compose symlinks, retaining staged files after failed uninstall teardown, and restoring the legacy read-only `/metrics` alias.
 - The environment did not provide `ss`; `netstat` confirmed the API on `127.0.0.1:8080` with no `:9091` agent TCP listener.
 - PR #18 is ready for final maintainer review but must not be treated as `main` behavior until merged.
 
