@@ -1,6 +1,6 @@
 # StackWarden Roadmap
 
-Last updated: 2026-08-08
+Last updated: 2026-09-04
 
 This roadmap is sequencing guidance, not permission to silently implement future scope.
 
@@ -17,7 +17,7 @@ Delivered on `main`:
 - Port change events.
 - Shared tool catalog and initial tool operations.
 
-## M1 - Security baseline (current)
+## M1 - Security baseline (complete)
 
 Goal: make the existing control plane safe enough to build on.
 
@@ -32,7 +32,7 @@ Required outcomes:
 - Tests for security boundaries.
 - Deployment access guidance that does not recommend exposing management ports publicly.
 
-PR #18 currently attempts this milestone and requires review before merge.
+Issue #20 / PR #18 completed this milestone on `main`.
 
 ## M2 - Durable inventory and snapshots
 
@@ -91,7 +91,7 @@ These can be scheduled as dedicated issues when needed:
 - Production installation/systemd packaging.
 - Auth/session/role architecture beyond the minimal security baseline.
 - Logging and durable audit export.
-- CI/release/versioning pipeline.
+- CI quality gates (Issue #21 in progress); release/versioning automation remains separate.
 - Secure upgrade/rollback.
 - Documentation/runbooks.
 - Threat-model updates and security tests.

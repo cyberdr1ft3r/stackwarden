@@ -19,9 +19,9 @@ Controls/direction:
 ## R-002 - Public management exposure
 
 Severity: High
-Status: Active on current `main`; mitigation implemented and verified in PR #18
+Status: Mitigated on current `main`; continuously regression-tested
 
-Current `main` documentation/configuration allows broad API binding. An Internet-reachable management API increases attack surface substantially.
+An Internet-reachable management API increases attack surface substantially. Current `main` binds to loopback by default and requires explicit opt-in for non-loopback exposure.
 
 Direction:
 - Loopback/private by default.
@@ -31,11 +31,11 @@ Direction:
 ## R-003 - Unauthenticated or insufficiently gated writes
 
 Severity: Critical
-Status: Active on current `main`; mitigation implemented and verified in PR #18
+Status: Mitigated on current `main`; continuously regression-tested
 
 Tool installation/uninstallation changes host state and may invoke privileged package/container operations. Write capabilities require explicit gating and authentication/authorization.
 
-PR #18 keeps writes disabled by default and applies centralized Bearer authorization to every supported `/v1/write/*` action. Route-level tests cover disabled, missing-token, invalid-token, allowed, malicious-input, and legacy-path cases.
+Current `main` keeps writes disabled by default and applies centralized Bearer authorization to every supported `/v1/write/*` action. Route-level tests cover disabled, missing-token, invalid-token, allowed, malicious-input, and legacy-path cases.
 
 ## R-004 - Shell injection / unsafe execution composition
 
@@ -88,7 +88,7 @@ Installing third-party tools may add repositories, fetch packages/images, and ru
 Severity: High
 Status: Open
 
-PR #18 proposes a minimal Bearer token for enabled writes, but long-term identity, roles, session handling, token lifecycle, and multi-operator authorization are not yet decided.
+Current `main` uses a minimal Bearer token for enabled writes, but long-term identity, roles, session handling, token lifecycle, and multi-operator authorization are not yet decided.
 
 ## R-010 - Deployment hardening not codified
 
@@ -100,8 +100,15 @@ Systemd/service users, filesystem ownership, socket group ownership, upgrade/rol
 ## R-011 - Failed teardown loses recovery configuration
 
 Severity: High
-Status: Mitigated in PR #18
+Status: Mitigated on current `main`
 
 Removing a staged tool directory after a failed Compose or package uninstall can leave host resources active while deleting the configuration needed to retry or diagnose teardown.
 
-PR #18 now retains the staged directory whenever uninstall does not complete and tests the failed-Compose recovery path. Future uninstall actions must preserve this safe failure mode.
+Current `main` retains the staged directory whenever uninstall does not complete and tests the failed-Compose recovery path. Future uninstall actions must preserve this safe failure mode.
+
+## R-012 - CI checks exist but are not enforced
+
+Severity: High
+Status: Active until Issue #21 is merged and branch protection is configured
+
+A workflow alone does not prevent merging code that fails security or compatibility checks. After Issue #21 establishes stable check names, a maintainer must require every CI check in the `main` branch protection rule or repository ruleset and require branches to be up to date before merge.

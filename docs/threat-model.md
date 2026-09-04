@@ -163,6 +163,8 @@ Any PR touching agent actions, installers, networking, auth, paths, or write API
 - Manual verification if OS behavior is environment-specific.
 - New/changed risks in `docs/project/RISKS.md`.
 
-## Current security gap summary
+## Current security baseline
 
-Current `main` predates the full hardened boundary. PR #18 proposes major mitigations including loopback API default, Unix-socket agent transport, read/write route separation, write-disabled-by-default behavior, write Bearer token checks, path validation, and safer command execution. Until merged, those are proposals rather than current guarantees.
+Current `main` includes the Issue #20 baseline: loopback API default, Unix-socket agent transport, read/write route separation, write-disabled-by-default behavior, Bearer checks for enabled writes, managed-path validation, and structured command execution.
+
+These controls remain regression-sensitive. Issue #21 adds automated formatting, static analysis, tests, builds, cross-platform compilation, and vulnerability checks; branch protection must require those checks after the workflow is merged.

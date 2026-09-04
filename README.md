@@ -41,6 +41,23 @@ Useful commands:
 - `make test` — run Go tests across modules
 - `make build` — build binaries into `./bin/`
 
+## CI and local quality checks
+
+GitHub Actions runs the following checks for pull requests and pushes to `main`. Run the same commands locally before pushing:
+
+```bash
+make fmt-check
+make vet
+make test
+make build
+make windows-compile
+
+go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+make vulncheck
+```
+
+`windows-compile` cross-compiles the supported Windows agent/API binaries and test packages without trying to execute Windows binaries on Linux. `govulncheck` v1.7.0 requires Go 1.25 or newer to build; it can still analyze StackWarden's Go 1.22 modules.
+
 ## Features
 - Health checks (API + Agent)
 - Ports visibility (API proxies the agent)
