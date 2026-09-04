@@ -209,6 +209,40 @@ func TestEnsureToolDirRejectsSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestStageTemplateFilesRejectsNestedSymlinkEscape(t *testing.T) {
+	restoreDir := withTempToolsDir(t)
+	defer restoreDir()
+
+	tool, err := tools.Find("portainer")
+	if err != nil {
+		t.Fatalf("find tool: %v", err)
+	}
+	toolDir, err := ensureToolDir(tool.ID)
+	if err != nil {
+		t.Fatalf("prepare tool dir: %v", err)
+	}
+
+	outside := filepath.Join(t.TempDir(), "outside-compose.yml")
+	if err := os.WriteFile(outside, []byte("sentinel"), 0o600); err != nil {
+		t.Fatalf("write outside sentinel: %v", err)
+	}
+	composePath := filepath.Join(toolDir, "docker-compose.yml")
+	if err := os.Symlink(outside, composePath); err != nil {
+		t.Fatalf("create nested symlink: %v", err)
+	}
+
+	if err := stageTemplateFiles(tool, toolDir); err == nil {
+		t.Fatal("expected nested symlink to be rejected")
+	}
+	data, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatalf("read outside sentinel: %v", err)
+	}
+	if string(data) != "sentinel" {
+		t.Fatalf("outside file was modified: %q", data)
+	}
+}
+
 func TestUninstallRejectsInvalidToolIDBeforeRemoveAll(t *testing.T) {
 	restoreDir := withTempToolsDir(t)
 	defer restoreDir()

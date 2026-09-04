@@ -119,12 +119,16 @@ func uninstallTool(ctx context.Context, tool tools.Tool, runner Runner) uninstal
 		result.Uninstalled = false
 	}
 
-	if err := os.RemoveAll(toolDir); err != nil {
-		warnings = append(warnings, fmt.Sprintf("failed to remove staged dir: %v", err))
-		result.RemovedStagedDir = false
-		result.Uninstalled = false
+	if result.Uninstalled {
+		if err := os.RemoveAll(toolDir); err != nil {
+			warnings = append(warnings, fmt.Sprintf("failed to remove staged dir: %v", err))
+			result.RemovedStagedDir = false
+			result.Uninstalled = false
+		} else {
+			result.RemovedStagedDir = true
+		}
 	} else {
-		result.RemovedStagedDir = true
+		warnings = append(warnings, "staged directory retained because uninstall did not complete")
 	}
 
 	result.Output = truncateOutput(strings.Join(outputs, "\n---\n"))
@@ -291,9 +295,12 @@ func findComposeFile(toolDir string) (string, bool) {
 	}
 
 	for _, name := range candidates {
-		path := filepath.Join(toolDir, name)
-		if info, err := os.Stat(path); err == nil && !info.IsDir() {
-			return path, true
+		composePath, err := managedChildPath(toolDir, name)
+		if err != nil {
+			continue
+		}
+		if info, err := os.Lstat(composePath); err == nil && info.Mode().IsRegular() {
+			return composePath, true
 		}
 	}
 

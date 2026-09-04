@@ -390,6 +390,9 @@ func TestRegisterLegacyReadRoutes_CompatPathsReachReadMux(t *testing.T) {
 	readMux.HandleFunc("/port-events", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusAccepted)
 	})
+	readMux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusPartialContent)
+	})
 
 	mux := http.NewServeMux()
 	registerLegacyReadRoutes(mux, readMux)
@@ -406,6 +409,13 @@ func TestRegisterLegacyReadRoutes_CompatPathsReachReadMux(t *testing.T) {
 	mux.ServeHTTP(portEventsRR, portEventsReq)
 	if portEventsRR.Code != http.StatusAccepted {
 		t.Fatalf("expected /port-events to be routed to read mux, got %d", portEventsRR.Code)
+	}
+
+	metricsReq := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	metricsRR := httptest.NewRecorder()
+	mux.ServeHTTP(metricsRR, metricsReq)
+	if metricsRR.Code != http.StatusPartialContent {
+		t.Fatalf("expected /metrics to be routed to read mux, got %d", metricsRR.Code)
 	}
 }
 

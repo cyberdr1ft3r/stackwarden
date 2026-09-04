@@ -919,6 +919,7 @@ func registerLegacyReadRoutes(mux *http.ServeMux, readMux *http.ServeMux) {
 		"/tools",
 		"/tools/",
 		"/ports",
+		"/metrics",
 		"/audit",
 		"/port-events",
 	}
