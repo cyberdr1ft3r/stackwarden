@@ -4,6 +4,8 @@
 
 StackWarden is a security-first control plane for understanding and safely operating servers.
 
+The 28 October 2026 planning baseline proposes focusing that mission on a lightweight, single-server, application-centred Docker hosting panel. That direction is recorded as proposed D-016 and is not merged functionality or an accepted architecture yet.
+
 It should help a sysadmin answer five progressively harder questions:
 
 1. **Discovery** — What is running and listening on this host?
@@ -19,6 +21,8 @@ The goal is not to reproduce a full enterprise monitoring suite or remote-shell 
 Primary user: a sysadmin / infrastructure operator with blue-team responsibilities managing Linux servers and needing a quick, trustworthy view of host exposure and operational state.
 
 Windows observation is supported where already implemented, but Linux remains the primary managed-server target.
+
+Under proposed D-016, applications and websites become the home screen. The operator would see actual containers and services, health, domains, published-port facts, cautiously described exposure, drift, and audit without StackWarden claiming ownership of workloads it merely observes.
 
 ## Product principles
 
@@ -78,9 +82,11 @@ These are foundations, not the finished product.
 
 ## Near-term direction
 
-The management-plane security baseline and mandatory CI quality gates are merged. D-012 defines the durable inventory/snapshot architecture; Issue #23 is the next implementation task.
+The management-plane security baseline, mandatory CI quality gates, and D-012 durable-storage architecture are merged. Durable storage itself is not implemented.
 
-After durable inventory/snapshot storage is implemented, the project should build the drift model, then exposure classification, and only then broader policy/remediation.
+Proposed D-016 changes the intended sequence, subject to review: first reconcile product direction, then correct unsafe Portainer installation defaults, add bounded read-only Docker application discovery, establish shared secure storage/auth/audit foundations, and only then add typed digest-based application reconciliation and proxy integration. Deployment, ownership adoption, and Docker mutation are not implied by discovery.
+
+The proposed deployment model starts with prebuilt immutable image digests. GitHub/GitLab source deployments would use external CI and registries; StackWarden would not build arbitrary source locally. A typed `AppSpec` would be validated at both API and agent boundaries, and arbitrary Compose would not be accepted as user input.
 
 ## Explicit non-goals for now
 
@@ -90,6 +96,7 @@ After durable inventory/snapshot storage is implemented, the project should buil
 - Silent public exposure of management services.
 - Large multi-tenant SaaS architecture without an approved project-direction change.
 - Adding a database solely because future persistence is expected; persistence architecture must be decided first.
+- Mail or DNS hosting, reseller/billing features, Kubernetes/multi-host orchestration, local image builds, and adoption of unmanaged workloads in the proposed v1.
 
 ## Definition of success
 

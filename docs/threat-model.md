@@ -1,6 +1,6 @@
 # StackWarden Threat Model
 
-Last updated: 2026-09-04
+Last updated: 2026-11-11
 
 ## Scope
 
@@ -151,6 +151,36 @@ Required controls:
 - Finite retention, verified backup/restore, corruption refusal, and safe shutdown.
 - No SQLite use over shared/network filesystems or from multiple API processes.
 
+### T-012 - Docker-socket authority exposed through product features
+
+The local Docker socket is effectively host-level authority. A Portainer installation, raw proxy, remote socket selector, or overly broad agent API could turn StackWarden into a host-compromise path.
+
+Required controls:
+- Keep Docker access exclusively inside the local agent.
+- Allowlist exact read-only inspection operations separately from any future mutations.
+- Block unsafe new Portainer installation at API/catalog and agent boundaries.
+- Never expose raw Engine responses, Exec, arbitrary Docker paths, or client-selected daemon URLs.
+
+### T-013 - Discovery metadata causes false trust or disclosure
+
+Compose labels and other Docker metadata can be attacker-controlled, malformed, excessive, or secret-bearing. Published ports do not prove Internet reachability.
+
+Required controls:
+- Bound response bytes, object counts, concurrency, time, and string lengths.
+- Return only typed minimal fields; exclude environment, mounts, private labels, credentials, raw JSON, and unnecessary host fingerprints.
+- Preserve unknown/unavailable/partial states and unattributed containers.
+- Treat grouping labels as hints only; never infer ownership or adoption.
+
+### T-014 - Application reconciliation expands into arbitrary execution
+
+A future user-supplied deployment format could smuggle shell commands, arbitrary Compose, privileged mounts, host networking, or secrets into the agent.
+
+Required controls if D-016 is accepted:
+- Use a narrow versioned `AppSpec`, strict rejection of unknown/unsupported fields, immutable image digests, and explicit resource bounds.
+- Enforce safety independently at API and agent boundaries.
+- Keep secret values out of ordinary API/storage/log surfaces.
+- Detect 80/443 ownership and never replace another reverse proxy automatically.
+
 ## Security invariants
 
 These should be treated as regression-sensitive:
@@ -181,3 +211,5 @@ Current `main` includes the Issue #20 baseline: loopback API default, Unix-socke
 These controls remain regression-sensitive. Issue #21 / PR #22 added six mandatory CI checks enforced by the `Protect main` ruleset.
 
 D-012 defines the next storage boundary: API-owned SQLite with minimized host inventory, durable drift/audit evidence, strict filesystem controls, and no secret persistence. Storage remains unimplemented until Issue #23 is complete.
+
+Proposed D-016 adds an application-centred Docker direction but is not accepted or implemented. Issues #26 and #27 are deliberately bounded security/discovery work: they must not create ownership, deployment, adoption, or generic Docker authority.

@@ -1,17 +1,16 @@
 # StackWarden Handoff
 
-Last updated: 2026-09-04
+Last updated: 2026-11-11
 
 ## Next concrete engineering task
 
-After the D-012 architecture PR merges, implement [Issue #23](https://github.com/cyberdr1ft3r/stackwarden/issues/23): API-owned durable SQLite inventory and history storage.
+Implement [Issue #26](https://github.com/cyberdr1ft3r/stackwarden/issues/26) on an independent branch from current `main`: block unsafe new Portainer installation at the API/catalog and agent boundaries without changing, uninstalling, or deleting any existing deployment or volume.
 
-Do not begin implementation from this architecture branch and do not add persistence code to the D-012 PR.
+D-016 remains proposed. Do not add application deployment, adoption, Docker mutation, persistence, or broad installer refactoring to Issue #26.
 
 ## Read first
 
-- Issue #23 and all comments.
-- `docs/architecture/durable-storage.md`
+- Issue #26 and all comments.
 - `AGENTS.md`
 - `PROJECT_MEMORY.md`
 - `docs/project/STATUS.md`
@@ -25,21 +24,18 @@ Do not begin implementation from this architecture branch and do not add persist
 
 ## Required implementation sequence
 
-1. Add the API storage/repository boundary and select a reviewed pure-Go SQLite driver.
-2. Add secure path/bootstrap handling and embedded checksum-verified migrations.
-3. Implement the host, revision, snapshot, listener, service, tool, drift, and audit schema.
-4. Add the single-flight API snapshot scheduler, persist complete normalized snapshots atomically, and deduplicate revisions without coupling history mutation to live read requests.
-5. Add bounded history queries, retention/pruning, backup/restore validation, corruption refusal, and safe shutdown.
-6. Integrate handlers without changing route authorization or response compatibility.
+1. Inspect catalog metadata, embedded templates, API install routing, agent dispatch, staging, status/uninstall, and their tests.
+2. Add an explicit default-denied Portainer install capability in shared/catalog behavior and enforce it again inside the agent before staging or command execution.
+3. Return a clear compatible API error for disabled/unsupported installation while preserving catalog reads, status, authentication, and existing uninstall scope.
+4. Add catalog/API/agent tests proving direct and mediated denial has no Compose, filesystem, deletion, volume, or running-resource side effects.
+5. Review DDEV risk without expanding this fix; record any follow-up.
+6. Run all six local equivalents and open a separate draft PR without merging or deploying.
 
 ## Completion conditions
 
-- Every acceptance criterion in Issue #23 and the D-012 architecture is tested.
-- No Bearer token, credential, environment content, request body, PID, raw command output, or automatic host fingerprint is persisted.
-- Migration, rollback, concurrency, retention, indexed query, restart, backup/restore, corruption, permission, and path/symlink tests pass.
-- Database tests reject cross-host drift snapshot references, reject dual audit terminal outcomes, accept both valid terminal sequences, and preserve drift events/host IDs when snapshot pruning nulls references.
-- Audit tests enforce age/count and byte-length limits, atomic request-group pruning, stale-pending completion, and durable state-changing operations while routine reads remain ephemeral.
-- Maintenance tests prove startup/hourly bounded pruning continues during agent and collection failure and exposes degraded health/fail-closed behavior on errors.
-- Linux behavior remains functional; Windows agent/API code compiles without execution.
-- All six mandatory CI checks pass.
-- Project memory describes persistence as current behavior only after the implementation PR merges.
+- Fresh Portainer installs are denied through API and direct agent calls even with enabled writes and valid authorization.
+- Denial occurs before staging or Docker/Compose execution and never removes files, containers, or volumes.
+- Existing status and explicitly authorized uninstall behavior remain compatible and are not broadened.
+- DDEV behavior is unchanged; any risk is documented as follow-up.
+- Linux tests/build and Windows compile checks pass, along with formatting, vet, and `govulncheck`.
+- Documentation describes the change as draft PR behavior until merged.
