@@ -1,16 +1,9 @@
-# Portainer CE (LTS) stack
+# Portainer installation disabled
 
-Run Portainer CE using Docker Compose.
+StackWarden does not provide a new Portainer installation bundle. The previous
+template published management ports and mounted the host Docker socket, which
+would grant the container high authority over the host.
 
-## Steps
-
-1) (Optional) adjust the ports in `.env` (defaults: 9443 for HTTPS UI, 8000 for Edge/agent listeners).  
-2) Create the data volume (if it doesn't already exist):
-   ```sh
-   docker volume create portainer_data
-   ```
-3) Start the stack:
-   ```sh
-   docker compose up -d
-   ```
-4) Open the UI at `https://<host>:9443`.
+Existing Portainer deployments and their volumes are not changed or removed by
+this policy. StackWarden retains status inspection and the existing explicit,
+authorized uninstall path for already-staged deployments.

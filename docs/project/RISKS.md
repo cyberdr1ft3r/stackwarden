@@ -1,6 +1,6 @@
 # StackWarden Risk Register
 
-Last updated: 2026-09-04
+Last updated: 2026-11-11
 
 ## R-001 - Privileged agent compromise
 
@@ -116,9 +116,9 @@ The `Protect main` ruleset requires all six CI checks. Workflow and ruleset chan
 ## R-013 - Unsupported Go toolchain vulnerabilities
 
 Severity: High
-Status: Mitigated on current `main`
+Status: Active as of 2026-11-11; blocks the vulnerability gate
 
-Go 1.22 is end-of-life and current vulnerability data identifies reachable standard-library vulnerabilities in the prior 1.22.2 development toolchain. StackWarden now requires and CI pins Go 1.25.13, and the vulnerability gate fails when reachable findings are present.
+Go 1.22 is end-of-life, and StackWarden currently requires and CI pins Go 1.25.13. With the current 2026-11-11 vulnerability database, `govulncheck@v1.7.0` reports nine reachable standard-library vulnerabilities in Go 1.25.13. Reported fixes require Go 1.26.9 or 1.26.11. This scoped PR does not change the repository's explicit Go 1.25.13 baseline; a dedicated toolchain-baseline issue is required, and the vulnerability CI check is expected to remain red until that is resolved.
 
 ## R-014 - Durable inventory disclosure or tampering
 
@@ -137,3 +137,17 @@ Status: Design mitigation accepted; implementation pending Issue #23
 Unbounded history can exhaust disk, while an unsafe migration, WAL copy, or automatic recreation can destroy forensic state.
 
 D-012 defines age and volume ceilings, insert-time audit-cap enforcement, complete request-group pruning, startup/hourly maintenance independent of collection health, bounded maintenance transactions, transactional checksum-verified migrations, online backup, offline restore validation, clean shutdown, and fail-closed corruption handling. These controls require fault-injection and recovery tests before persistence is considered complete.
+
+## R-016 - Unsafe Portainer installation default
+
+Severity: Critical
+Status: Mitigation proposed in Issue #26 draft; not merged
+
+The prior bundled Portainer template published management ports 9443/8000 and mounted the host Docker socket. Issue #26's draft removes the deployable template and independently denies fresh install and bundle paths in the catalog, API, and agent before staging or command execution. Existing deployments, volumes, status inspection, and the explicitly authorized uninstall path remain untouched.
+
+## R-017 - DDEV installer supply-chain and host mutation
+
+Severity: High
+Status: Open follow-up
+
+The DDEV installer adds an external APT repository, downloads a signing key or pinned package, installs host packages, and runs `mkcert -install`. These are explicit catalog actions but remain broad privileged mutations with external availability and lifecycle risk. Issue #26 preserves existing DDEV behavior; a separate issue should review artifact verification, repository lifecycle, rollback, and whether a server control plane should retain this installer.

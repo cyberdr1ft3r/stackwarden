@@ -362,8 +362,12 @@ func parsePorts(body []byte) ([]PortEntry, error) {
 	return nil, fmt.Errorf("unable to parse ports response")
 }
 
-func buildBundle(toolID string) (*bytes.Buffer, error) {
-	base, err := tools.TemplateBasePath(toolID)
+func buildBundle(tool tools.Tool) (*bytes.Buffer, error) {
+	if !tool.InstallAllowed {
+		return nil, errors.New(tool.InstallDisabledReason)
+	}
+
+	base, err := tools.TemplateBasePath(tool.ID)
 	if err != nil {
 		return nil, fmt.Errorf("template path missing: %w", err)
 	}
@@ -429,8 +433,18 @@ func handleToolInstall(w http.ResponseWriter, r *http.Request, audit *auditLog, 
 		audit.recordAudit(action, ok)
 	}()
 
-	if _, err := tools.Find(toolID); err != nil {
+	tool, err := tools.Find(toolID)
+	if err != nil {
 		http.Error(w, "tool not found", http.StatusNotFound)
+		return
+	}
+	if !tool.InstallAllowed {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(installResponse{
+			OK:      false,
+			Message: tool.InstallDisabledReason,
+		})
 		return
 	}
 
@@ -780,7 +794,17 @@ func main() {
 			return
 		}
 
-		buf, err := buildBundle(tool.ID)
+		if !tool.InstallAllowed {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(installResponse{
+				OK:      false,
+				Message: tool.InstallDisabledReason,
+			})
+			return
+		}
+
+		buf, err := buildBundle(tool)
 		if err != nil {
 			log.Printf("bundle error for %s: %v", tool.ID, err)
 			http.Error(w, "failed to build bundle", http.StatusInternalServerError)
