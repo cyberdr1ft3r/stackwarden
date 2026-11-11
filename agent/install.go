@@ -42,6 +42,15 @@ func handleToolInstall(w http.ResponseWriter, r *http.Request, toolID string) {
 		http.Error(w, "tool not found", http.StatusNotFound)
 		return
 	}
+	if !tool.InstallAllowed {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(installResult{
+			OK:      false,
+			Message: tool.InstallDisabledReason,
+		})
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), installCommandTimeout)
 	defer cancel()

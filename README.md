@@ -64,13 +64,14 @@ make vulncheck
 - Health checks (API + Agent)
 - Ports visibility (API proxies the agent)
 - Audit log (last 50 events)
-- Tool catalog with server-side installs (agent executes installs)
+- Tool catalog with explicit per-tool install policy (agent executes enabled installs)
 - Minimal UI (no frameworks) with manual refresh controls
 
 ## Tool installs
 - Installs are executed on the **server** by the agent (no browser downloads required).
 - Tool files and artifacts are staged under `/var/lib/stackwarden/tools/<id>/`.
 - Compose tools require Docker (or Docker Compose) running on the host.
+- New Portainer installations and Portainer bundle downloads are disabled. Existing staged deployments are not modified; status and explicitly authorized uninstall remain available.
 - DDEV install flow targets Debian/Ubuntu; other operating systems return “not supported yet.”
 - Bundles remain downloadable as an optional client-side ZIP.
 
@@ -82,14 +83,14 @@ curl -s http://127.0.0.1:8080/v1/read/version
 curl -s http://127.0.0.1:8080/v1/read/metrics
 curl -s http://127.0.0.1:8080/v1/read/ports
 curl -s http://127.0.0.1:8080/v1/read/audit
-curl -i -X POST http://127.0.0.1:8080/v1/write/tools/portainer/install
-curl -X POST -H "Authorization: Bearer $STACKWARDEN_TOKEN" -s http://127.0.0.1:8080/v1/write/tools/portainer/install
+curl -i -X POST http://127.0.0.1:8080/v1/write/tools/ddev/install
+curl -X POST -H "Authorization: Bearer $STACKWARDEN_TOKEN" -s http://127.0.0.1:8080/v1/write/tools/ddev/install
 ```
 
 ## Security verification checklist
 - `ss -ltnp | rg ':8080'` shows API bound to `127.0.0.1:8080` (unless explicitly overridden with `ALLOW_NONLOCAL_BIND=1`).
 - `ss -ltnp | rg 9091` shows no TCP listener for the agent.
-- `curl -i -X POST http://127.0.0.1:8080/v1/write/tools/portainer/install` returns `403` + `{"error":"write_disabled"}` by default.
+- `curl -i -X POST http://127.0.0.1:8080/v1/write/tools/portainer/install` returns `403` while writes are disabled, and returns `409` without contacting the agent when correctly authorized.
 - With `STACKWARDEN_WRITE_ENABLED=true`, same request without token returns `401` + `{"error":"unauthorized"}`.
 - With `STACKWARDEN_WRITE_ENABLED=true` and correct Bearer token, `/v1/write/*` works.
 

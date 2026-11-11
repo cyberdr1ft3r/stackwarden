@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/m0b3u/stackwarden/pkg/tools"
 )
 
 type countingTransport struct {
@@ -316,6 +318,15 @@ func TestRegisterWriteRoutes_ProtectsEverySupportedAction(t *testing.T) {
 			req.Header.Set("Authorization", "Bearer test-token")
 			rr := httptest.NewRecorder()
 			mux.ServeHTTP(rr, req)
+			if action == "install" {
+				if rr.Code != http.StatusConflict {
+					t.Fatalf("expected disabled Portainer install to return 409, got %d: %s", rr.Code, rr.Body.String())
+				}
+				if transport.calls != 0 {
+					t.Fatalf("disabled Portainer install reached agent %d times", transport.calls)
+				}
+				return
+			}
 			if rr.Code != http.StatusOK {
 				t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 			}
@@ -323,6 +334,35 @@ func TestRegisterWriteRoutes_ProtectsEverySupportedAction(t *testing.T) {
 				t.Fatalf("expected one agent call, got %d", transport.calls)
 			}
 		})
+	}
+}
+
+func TestDDEVInstallRemainsAPIMediated(t *testing.T) {
+	transport := &countingTransport{}
+	mux := http.NewServeMux()
+	cfg := securityConfig{WriteEnabled: true, Token: "test-token"}
+	registerWriteRoutes(mux, cfg, &auditLog{}, &http.Client{Transport: transport})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/write/tools/ddev/install", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if transport.calls != 1 {
+		t.Fatalf("expected one agent call, got %d", transport.calls)
+	}
+}
+
+func TestPortainerBundleIsDisabled(t *testing.T) {
+	tool, err := tools.Find("portainer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := buildBundle(tool); err == nil {
+		t.Fatal("expected Portainer bundle generation to be disabled")
 	}
 }
 

@@ -298,9 +298,13 @@
             const installState = state.toolInstalls[tool.id] || {};
             const uninstallState = state.toolUninstalls[tool.id] || {};
             const statusState = state.toolStatuses[tool.id] || {};
-            const buttonLabel = installState.loading ? "Installing..." : "Install on server";
-            const buttonDisabled = installState.loading || uninstallState.loading ? "disabled" : "";
+            const installAllowed = tool.install_allowed === true;
+            const buttonLabel = installState.loading ? "Installing..." : installAllowed ? "Install on server" : "Install disabled";
+            const buttonDisabled = installState.loading || uninstallState.loading || !installAllowed ? "disabled" : "";
             const installKind = tool.install_kind || "bundle";
+            const installPolicyNote = !installAllowed && tool.install_disabled_reason
+              ? `<div class="error" style="margin-top:6px;">${escapeHtml(tool.install_disabled_reason)}</div>`
+              : "";
             const servicePorts = Array.isArray(tool.service_ports) && tool.service_ports.length ? tool.service_ports.join(", ") : "";
             let statusHTML = '<div class="muted">No install attempts yet.</div>';
             let toolStatusHTML = '<div class="muted">Status not checked yet.</div>';
@@ -348,6 +352,7 @@
                   <h4 style="margin:0 0 6px 0;">${escapeHtml(tool.name || tool.id)}</h4>
                   <p style="margin: 0 0 6px 0;">${escapeHtml(tool.description || "")}</p>
                   <div class="muted" style="margin: 6px 0;">Install kind: <code>${escapeHtml(installKind)}</code>${servicePorts ? ` • Ports: ${escapeHtml(servicePorts)}` : ""}</div>
+                  ${installPolicyNote}
                   <div style="display:flex; gap:6px; flex-wrap: wrap;">${tags}</div>
                   <div style="margin-top:8px;">${statusHTML}</div>
                   <div style="margin-top:8px;">${toolStatusHTML}</div>
@@ -357,7 +362,7 @@
                     <button data-install="${tool.id}" onclick="installTool('${tool.id}')" ${buttonDisabled}>${buttonLabel}</button>
                     <button onclick="refreshToolStatus('${tool.id}')" ${statusState.loading ? "disabled" : ""}>Check status</button>
                     <button onclick="uninstallTool('${tool.id}')" ${uninstallState.loading || installState.loading ? "disabled" : ""}>Uninstall</button>
-                    <a class="muted" href="/v1/read/tools/${tool.id}/bundle" style="font-size:13px; text-align:right;">Download to my PC</a>
+                    ${installAllowed ? `<a class="muted" href="/v1/read/tools/${tool.id}/bundle" style="font-size:13px; text-align:right;">Download to my PC</a>` : ""}
                   </div>
                 </div>
               </div>

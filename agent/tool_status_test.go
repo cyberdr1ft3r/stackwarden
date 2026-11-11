@@ -222,12 +222,12 @@ func TestStageTemplateFilesRejectsNestedSymlinkEscape(t *testing.T) {
 		t.Fatalf("prepare tool dir: %v", err)
 	}
 
-	outside := filepath.Join(t.TempDir(), "outside-compose.yml")
+	outside := filepath.Join(t.TempDir(), "outside-readme.md")
 	if err := os.WriteFile(outside, []byte("sentinel"), 0o600); err != nil {
 		t.Fatalf("write outside sentinel: %v", err)
 	}
-	composePath := filepath.Join(toolDir, "docker-compose.yml")
-	if err := os.Symlink(outside, composePath); err != nil {
+	readmePath := filepath.Join(toolDir, "README.md")
+	if err := os.Symlink(outside, readmePath); err != nil {
 		t.Fatalf("create nested symlink: %v", err)
 	}
 
