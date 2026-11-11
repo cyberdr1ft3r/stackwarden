@@ -1,6 +1,6 @@
 # StackWarden Risk Register
 
-Last updated: 2026-09-04
+Last updated: 2026-11-11
 
 ## R-001 - Privileged agent compromise
 
@@ -137,3 +137,38 @@ Status: Design mitigation accepted; implementation pending Issue #23
 Unbounded history can exhaust disk, while an unsafe migration, WAL copy, or automatic recreation can destroy forensic state.
 
 D-012 defines age and volume ceilings, insert-time audit-cap enforcement, complete request-group pruning, startup/hourly maintenance independent of collection health, bounded maintenance transactions, transactional checksum-verified migrations, online backup, offline restore validation, clean shutdown, and fail-closed corruption handling. These controls require fault-injection and recovery tests before persistence is considered complete.
+
+## R-016 - Unsafe Portainer installation default
+
+Severity: Critical
+Status: Active; Issue #26 is the required correction
+
+The bundled Portainer Compose template mounts `/var/run/docker.sock` and publishes management ports 9443 and 8000 without loopback constraints. A new installation creates a high-authority management surface and must be blocked at both API/catalog and agent boundaries. Existing deployments and volumes must remain untouched; disabling new installation is not authorization to uninstall or rewrite them.
+
+## R-017 - Installer request coupling and output buffering
+
+Severity: High
+Status: Open; outside the Issue #26 narrow gate
+
+Compose operations currently share the HTTP request lifetime and command output is buffered before trimming. Disconnects/timeouts can leave ambiguous operation state, while unbounded intermediate output can consume memory. A later design should use bounded streaming/capture and an explicit operation lifecycle without broadening command authority.
+
+## R-018 - Untrusted Docker discovery metadata
+
+Severity: High
+Status: Proposed mitigation in Issue #27
+
+Docker names, image references, status text, port data, and Compose labels are daemon-controlled/untrusted input. Discovery must bound counts/bytes/strings, avoid secrets and raw Engine data, preserve unavailable/unknown states, and treat Compose labels only as grouping hints. Observation must not confer ownership or mutation authority.
+
+## R-019 - Reverse-proxy/port ownership conflict
+
+Severity: High
+Status: Open proposal risk
+
+Future Caddy integration could disrupt an existing reverse proxy or services on ports 80/443. Any implementation must detect ownership, stop safely on conflicts, and never automatically replace or reconfigure another proxy.
+
+## R-020 - Arbitrary application specification or secret disclosure
+
+Severity: Critical
+Status: Open proposal risk
+
+An overly expressive application format could recreate arbitrary Compose/shell authority or leak secrets through storage, logs, or API responses. Any future `AppSpec` must be typed, allowlisted, size-bounded, reject unsupported fields and inline secret material, and be enforced independently by both API and agent.

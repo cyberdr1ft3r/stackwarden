@@ -1,6 +1,6 @@
 # StackWarden Decisions
 
-Last updated: 2026-09-04
+Last updated: 2026-11-11
 
 Accepted decisions are append-oriented. Do not rewrite history to make a later decision look original; supersede older decisions explicitly.
 
@@ -115,3 +115,17 @@ Status: Accepted and merged by Issue #21 / PR #22
 StackWarden requires Go 1.25.13 or newer. CI pins Go 1.25.13 so formatting, analysis, tests, builds, Windows compilation, and vulnerability results are reproducible.
 
 Go 1.22 is no longer a supported build baseline because current `govulncheck` identifies reachable standard-library vulnerabilities that are fixed only in maintained Go releases.
+
+## D-016 - Application-centred single-server scope
+
+Status: Proposed on 2026-10-28; pending repository review
+
+StackWarden would become a lightweight, single-server, application-centred Docker hosting and security control plane. Applications and websites would be the primary operator view, with current services, health, domains, observed exposure, drift, and audit forming the security-focused differentiation.
+
+The proposed runtime boundary remains browser -> Go API -> local Unix-socket agent -> Docker/OS. Docker access would stay inside the agent and remain independently constrained there. Deployment would use a typed, validated `AppSpec` and desired-state reconciliation rather than arbitrary Compose or shell input. Initial deployment would prefer prebuilt immutable image digests; later source deployments would use external GitHub/GitLab CI and registries rather than local image builds.
+
+The proposal includes multi-service applications and persistent volumes, including application databases. Caddy is a direction, not an approved automatic migration: existing ownership of ports 80/443 must be detected and another reverse proxy must never be replaced automatically.
+
+Proposed v1 exclusions are mail/DNS hosting, reseller/billing features, Kubernetes or multi-host orchestration, arbitrary terminals, local image builds, and adopting unmanaged workloads.
+
+If accepted, D-016 supersedes the inventory-only sequencing in the earlier roadmap, but not the accepted security and integrity requirements in D-001 through D-015. In particular, D-012 remains the binding storage-safety design until it is explicitly superseded; Issue #23 remains open and none of its criteria are discarded by this proposal.

@@ -1,6 +1,6 @@
 # StackWarden - Project Memory
 
-Last updated: 2026-09-04
+Last updated: 2026-11-11
 
 This is the fastest context-rehydration entry point for humans and coding agents. It records stable product facts, architecture, current direction, and the operating protocol. Detailed design/security documentation lives under `docs/`.
 
@@ -27,7 +27,7 @@ The project is intentionally more than a generic dashboard. Its value is safe op
 
 ## Current Phase
 
-M2 durable inventory and snapshots. D-012 selects the architecture; implementation is tracked by Issue #23.
+Product-direction reconciliation. D-012 remains accepted and Issue #23 remains open; D-016 proposes an application-centred single-server direction but is not yet accepted or implemented.
 
 Current `main` already includes:
 
@@ -86,6 +86,8 @@ API-to-agent communication stays local over a Unix socket and is inaccessible as
 - `docs/project/` - current status, decisions, risks, roadmap, and next-agent handoff.
 
 ## Product Direction
+
+The accepted foundation remains `discovery -> snapshot -> drift -> exposure -> policy`. Proposed D-016 would make Docker applications/websites the primary operator view and reorder near-term delivery around application discovery and, later, typed desired-state reconciliation. Until approved, it is planning context rather than current architecture.
 
 ### 1. Discovery
 

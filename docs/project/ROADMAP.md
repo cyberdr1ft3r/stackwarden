@@ -1,6 +1,6 @@
 # StackWarden Roadmap
 
-Last updated: 2026-09-04
+Last updated: 2026-11-11
 
 This roadmap is sequencing guidance, not permission to silently implement future scope.
 
@@ -34,7 +34,53 @@ Required outcomes:
 
 Issue #20 / PR #18 completed this milestone on `main`.
 
-## M2 - Durable inventory and snapshots (current)
+## Proposed application-centred sequence (pending D-016 approval)
+
+This sequence is planning guidance from the 28 October 2026 baseline. It is not permission to implement later stages and does not make D-016 accepted.
+
+### A - Product reconciliation
+
+- Review proposed D-016 and its v1 exclusions.
+- Preserve D-012 integrity and safety constraints until explicitly superseded.
+- Measure the current and future footprint rather than assuming it remains lightweight.
+
+### B - Immediate installer safety and structural preparation
+
+- Block unsafe new Portainer installation at API/catalog and agent boundaries without changing existing deployments or volumes.
+- Handle any no-behavior-change structural cleanup in separate reviewable PRs.
+- Review DDEV installer supply-chain and privilege risk separately.
+
+### C - Read-only Docker/application discovery
+
+- Observe bounded container, service, image, status, and published-port facts through the local agent.
+- Treat Compose labels as untrusted grouping hints; retain unattributed containers.
+- Preserve unknown/unavailable states and existing host listeners.
+- Do not adopt, deploy, mutate, or infer Internet reachability from a published port.
+
+### D - Shared security, storage, and desired-state foundations
+
+- Implement the common D-012 SQLite bootstrap, migrations, retention, backup/restore, corruption refusal, and administrative audit foundations.
+- Design a single-administrator session with CSRF protection and explicit secret/AppSpec rejection policy.
+- Decompose Issue #23 without closing or weakening it: (i) common storage/security/audit, (ii) application desired-state/reconciliation persistence, and (iii) inventory/snapshot history.
+
+### E - Typed digest-based application reconciliation
+
+- Introduce a narrow validated `AppSpec` for prebuilt immutable image digests, multi-service apps, databases, and persistent volumes.
+- Add desired-state reconciliation only after independent API and agent safety enforcement is reviewed.
+- Evaluate Caddy after detecting existing ownership of 80/443; never replace another proxy automatically.
+
+### F - External source build/deploy
+
+- Integrate GitHub/GitLab external CI and registries.
+- Do not add local arbitrary source/image builds.
+
+### G - Durable operations and release evidence
+
+- Complete durable drift/exposure history and recovery workflows.
+- Test clean installation, upgrade, rollback, backup/restore, and failure recovery.
+- Record measured CPU, memory, disk, and idle/runtime footprint.
+
+## Prior roadmap: durable inventory and snapshots
 
 Goal: turn transient observation into durable host state.
 
@@ -50,7 +96,7 @@ Implementation scope:
 
 Do not expand Issue #23 into multi-host enrollment, metrics time-series storage, PostgreSQL, or broader remediation.
 
-## M3 - Drift engine
+## Prior M3 - Drift engine
 
 Goal: compare current state with prior/approved state and produce meaningful changes.
 
@@ -62,7 +108,7 @@ Candidate changes:
 - Severity/relevance metadata.
 - Acknowledgement/expected-change model.
 
-## M4 - Exposure model
+## Prior M4 - Exposure model
 
 Goal: translate raw drift into security/operator relevance.
 
@@ -75,7 +121,7 @@ Candidate scope:
 
 Avoid claiming a vulnerability solely from port presence.
 
-## M5 - Policy and controlled remediation
+## Prior M5 - Policy and controlled remediation
 
 Goal: encode approved desired state and allow safe corrective operations.
 
