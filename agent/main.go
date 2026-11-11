@@ -46,6 +46,8 @@ func main() {
 		_ = json.NewEncoder(w).Encode(resp)
 	})
 
+	mux.HandleFunc("/docker/apps", handleDockerDiscovery)
+
 	mux.HandleFunc("/tools/", toolActionHandler)
 
 	socketPath := getenv("AGENT_SOCKET", "/run/stackwarden/agent.sock")

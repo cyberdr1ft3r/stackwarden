@@ -1,17 +1,22 @@
 # StackWarden Handoff
 
-Last updated: 2026-09-04
+Last updated: 2026-11-11
 
 ## Next concrete engineering task
 
-After the D-012 architecture PR merges, implement [Issue #23](https://github.com/cyberdr1ft3r/stackwarden/issues/23): API-owned durable SQLite inventory and history storage.
+Open a dedicated security/maintenance issue and PR to update the Go and CI
+baseline from 1.25.13 to a release that fixes the current reachable
+standard-library findings (currently Go 1.26.11), then restore a green
+`govulncheck@v1.7.0` gate.
 
-Do not begin implementation from this architecture branch and do not add persistence code to the D-012 PR.
+Do not fold the toolchain change into Issue #27. Keep Issue #27 draft pending
+Issue #25/D-016 product-direction review and do not merge Docker observation as
+accepted ownership or deployment behavior.
 
 ## Read first
 
-- Issue #23 and all comments.
-- `docs/architecture/durable-storage.md`
+- Current Go security release notes and all eleven reported vulnerability records.
+- Issue #25, Issue #27, and their draft PR review state.
 - `AGENTS.md`
 - `PROJECT_MEMORY.md`
 - `docs/project/STATUS.md`
@@ -25,21 +30,15 @@ Do not begin implementation from this architecture branch and do not add persist
 
 ## Required implementation sequence
 
-1. Add the API storage/repository boundary and select a reviewed pure-Go SQLite driver.
-2. Add secure path/bootstrap handling and embedded checksum-verified migrations.
-3. Implement the host, revision, snapshot, listener, service, tool, drift, and audit schema.
-4. Add the single-flight API snapshot scheduler, persist complete normalized snapshots atomically, and deduplicate revisions without coupling history mutation to live read requests.
-5. Add bounded history queries, retention/pruning, backup/restore validation, corruption refusal, and safe shutdown.
-6. Integrate handlers without changing route authorization or response compatibility.
+1. Confirm the minimum maintained Go release fixing every reachable finding.
+2. Update module directives, CI setup, README, decisions, risks, and memory in one scoped PR.
+3. Run formatting, vet, tests, Linux build, Windows compile, and the pinned vulnerability scan on the exact toolchain.
+4. Do not change runtime behavior or feature scope in the maintenance PR.
+5. After the gate is green, review/rebase the Issue #27 draft against the accepted product direction.
 
 ## Completion conditions
 
-- Every acceptance criterion in Issue #23 and the D-012 architecture is tested.
-- No Bearer token, credential, environment content, request body, PID, raw command output, or automatic host fingerprint is persisted.
-- Migration, rollback, concurrency, retention, indexed query, restart, backup/restore, corruption, permission, and path/symlink tests pass.
-- Database tests reject cross-host drift snapshot references, reject dual audit terminal outcomes, accept both valid terminal sequences, and preserve drift events/host IDs when snapshot pruning nulls references.
-- Audit tests enforce age/count and byte-length limits, atomic request-group pruning, stale-pending completion, and durable state-changing operations while routine reads remain ephemeral.
-- Maintenance tests prove startup/hourly bounded pruning continues during agent and collection failure and exposes degraded health/fail-closed behavior on errors.
-- Linux behavior remains functional; Windows agent/API code compiles without execution.
-- All six mandatory CI checks pass.
-- Project memory describes persistence as current behavior only after the implementation PR merges.
+- All six mandatory CI checks pass on the exact PR head.
+- No reachable standard-library vulnerability remains in the pinned scan.
+- Linux behavior and Windows compilation remain functional.
+- The Issue #27 draft remains read-only, bounded, and explicitly pending product review.

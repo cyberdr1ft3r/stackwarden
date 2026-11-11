@@ -1,6 +1,6 @@
 # StackWarden Threat Model
 
-Last updated: 2026-09-04
+Last updated: 2026-11-11
 
 ## Scope
 
@@ -150,6 +150,23 @@ Required controls:
 - Transactional checksum-verified migrations and atomic snapshot/drift writes.
 - Finite retention, verified backup/restore, corruption refusal, and safe shutdown.
 - No SQLite use over shared/network filesystems or from multiple API processes.
+
+### T-012 - Docker socket authority and hostile discovery metadata
+
+The Docker socket is effectively host-level authority. A raw proxy, writable
+operation, Exec surface, client-selected socket, or insufficiently bounded
+response could turn read-only discovery into host compromise or resource
+exhaustion. Container metadata and Compose labels can be attacker controlled.
+
+Required controls:
+- Docker access remains exclusively inside the local agent at a fixed socket.
+- Allowlist exact read-only requests; expose no raw Engine proxy or mutation.
+- Bound time, response bytes, concurrency, object counts, ports, and strings.
+- Return minimal typed data and exclude environment, mounts, private labels,
+  credentials, raw JSON, and unnecessary host fingerprints.
+- Treat Compose project/service labels only as grouping hints, never ownership.
+- Preserve unknown/unavailable/partial states and never claim a published port
+  proves Internet exposure.
 
 ## Security invariants
 
